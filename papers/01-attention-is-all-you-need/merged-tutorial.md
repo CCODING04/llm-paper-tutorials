@@ -337,6 +337,40 @@ While for small values of $d _ { k }$ the two mechanisms perform similarly, addi
 >     attn_weights = F.softmax(scores, dim=-1)
 >     output = torch.matmul(attn_weights, V)
 >     return output, attn_weights
+> ```python
+> import torch
+> import torch.nn.functional as F
+> import math
+> 
+> def scaled_dot_product_attention(Q, K, V, mask=None):
+>     d_k = Q.size(-1)
+>     scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
+>     if mask is not None:
+>         scores = scores.masked_fill(mask == 0, float('-inf'))
+>     attn_weights = F.softmax(scores, dim=-1)
+>     output = torch.matmul(attn_weights, V)
+>     return output, attn_weights
+> 
+> # 测试：3个位置，每个4维
+> Q = torch.randn(1, 3, 4)
+> K = torch.randn(1, 3, 4)
+> V = torch.randn(1, 3, 4)
+> output, weights = scaled_dot_product_attention(Q, K, V)
+> print(f"Q shape: {Q.shape}")
+> print(f"Output shape: {output.shape}")
+> print(f"Weights shape: {weights.shape}")
+> print(f"Weights sum per row: {weights[0, 0].sum():.4f}")
+> print(f"Weights:\n{weights[0].detach().numpy()}")
+> ```
+> ```
+> Q shape: torch.Size([1, 3, 4])
+> Output shape: torch.Size([1, 3, 4])
+> Weights shape: torch.Size([1, 3, 3])
+> Weights sum per row: 1.0000
+> Weights:
+> [[0.3017341  0.30983964 0.3884262 ]
+>  [0.24509554 0.3801395  0.37476504]
+>  [0.29378855 0.22932169 0.4768897 ]]
 > ```
 > 
 > 💡 核心就是三次矩阵乘法：Q×K^T、缩放、Softmax、再乘 V。整个过程中没有任何循环，全是矩阵运算——这就是 GPU 最擅长的事情！
@@ -410,6 +444,19 @@ In this work we employ $h \ : = \ : 8$ parallel attention layers, or heads. For 
 >         attn_output = torch.matmul(attn_weights, V)
 >         attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
 >         return self.W_o(attn_output)
+> 
+> # 测试
+> mha = MultiHeadAttention(d_model=512, n_heads=8)
+> x = torch.randn(2, 10, 512)  # batch=2, seq_len=10, d_model=512
+> output = mha(x, x, x)  # Self-Attention: Q=K=V=x
+> print(f"Input shape:  {x.shape}")
+> print(f"Output shape: {output.shape}")
+> print(f"参数数量: {sum(p.numel() for p in mha.parameters()):,}")
+> ```
+> ```
+> Input shape:  torch.Size([2, 10, 512])
+> Output shape: torch.Size([2, 10, 512])
+> 参数数量: 1,050,624
 > ```
 > 
 > 💡 注意 `mha(x, x, x)` 这里 Q、K、V 都是同一个输入——这就是 **Self-Attention**。如果是 Cross-Attention（Decoder 关注 Encoder 输出），Q 和 K、V 就来自不同的地方。
@@ -537,7 +584,32 @@ We also experimented with using learned positional embeddings [9] instead, and f
 >     PE[:, 0::2] = torch.sin(position * div_term)
 >     PE[:, 1::2] = torch.cos(position * div_term)
 >     return PE
+> 
+> # 测试
+> pe = positional_encoding(max_len=50, d_model=64)
+> print(f"PE shape: {pe.shape}")
+> print(f"PE[0][:8] = {pe[0][:8].tolist()}")  # 位置0：sin(0)=0, cos(0)=1
+> print(f"PE[1][:8] = {pe[1][:8].tolist()}")  # 位置1：不同频率的sin/cos值
 > ```
+> ```
+> PE shape: torch.Size([50, 64])
+> PE[0][:8] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+> PE[1][:8] = [0.8414709, 0.5403023, 0.6815614, 0.7317610, 0.5331684, 0.8460091, 0.4093089, 0.9123959]
+> ```
+> 
+> 位置 0 的偶数维度全是 sin(0)=0，奇数维度全是 cos(0)=1。位置 1 开始出现不同的值。
+> 
+> 下面这张热力图展示了前 50 个位置、前 64 个维度的编码值。颜色越深表示值越大：
+> 
+> ![位置编码热力图](./images/pe_heatmap.png)
+> 
+> 你可以看到每一列（每个维度）都是一个不同频率的正弦波。低维度（左边）变化快，高维度（右边）变化慢——这就是"多尺度位置感知"。
+> 
+> 再看 4 个不同位置的编码曲线：
+> 
+> ![不同位置的编码曲线](./images/pe_positions.png)
+> 
+> 位置 0 是恒定值（全 0 或全 1），位置越远，曲线越"活跃"。不同位置的曲线形状完全不同——这就是 Transformer 能区分不同位置的原因。
 
 # 4 Why Self-Attention
 
@@ -615,7 +687,28 @@ This corresponds to increasing the learning rate linearly for the first warmup\_
 > ```python
 > def lr_schedule(step, d_model=512, warmup_steps=4000):
 >     return d_model ** (-0.5) * min(step ** (-0.5), step * warmup_steps ** (-1.5))
+> 
+> # 测试关键点的学习率
+> for step in [1, 100, 1000, 4000, 10000, 50000, 100000]:
+>     lr = lr_schedule(step)
+>     marker = " ← warmup 结束，学习率最大" if step == 4000 else ""
+>     print(f"step={step:>6}: lr={lr:.6f}{marker}")
 > ```
+> ```
+> step=     1: lr=0.000000
+> step=   100: lr=0.000017
+> step=  1000: lr=0.000175
+> step=  4000: lr=0.000699 ← warmup 结束，学习率最大
+> step= 10000: lr=0.000442
+> step= 50000: lr=0.000198
+> step=100000: lr=0.000140
+> ```
+> 
+> 学习率曲线长这样：
+> 
+> ![学习率调度曲线](./images/lr_schedule.png)
+> 
+> 你看，前 4000 步线性增长（warmup），之后按平方根倒数衰减。这个"Warmup + Decay"策略后来成了训练 Transformer 的标配。
 
 # 5.4 Regularization
 

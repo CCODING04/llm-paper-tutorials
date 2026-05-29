@@ -141,6 +141,37 @@ git commit -m "feat: add XX-paper-name 论文精读教程"
 git push origin main
 ```
 
+## 代码执行与输出要求
+
+教程中的代码块必须包含可执行的测试代码和预期输出：
+
+1. **代码块结构**：函数/类定义 → 测试代码 → 输出结果
+2. **输出格式**：在代码块之后添加一个无语言标记的代码块，包含预期输出
+3. **生成图片的代码**：保存图片到 `images/` 目录，在教程中插入图片引用 `![描述](./images/xxx.png)`
+4. **执行验证**：生成教程后，用 Python 实际执行所有代码块，确认输出与文档一致
+
+示例：
+```markdown
+```python
+def add(a, b):
+    return a + b
+
+print(f"1 + 2 = {add(1, 2)}")
+```
+```
+1 + 2 = 3
+```
+
+生成图片的代码示例：
+```python
+import matplotlib.pyplot as plt
+plt.plot([1, 2, 3], [1, 4, 9])
+plt.savefig('images/xxx.png')
+```
+
+![xxx 图](./images/xxx.png)
+```
+
 ## 质量检查清单
 
 - [ ] `paper.pdf` 完整
@@ -148,6 +179,8 @@ git push origin main
 - [ ] `README.md` 公式推导不跳步、有代码验证、有 llm-math 关联
 - [ ] `merged-tutorial.md` 原文未修改、讲解穿插在对应章节后
 - [ ] 图片路径无 typo（如有怀疑，下载 tex 源码验证）
+- [ ] 代码块有测试代码和预期输出
+- [ ] 生成图片的代码已执行，图片已保存到 images/
 - [ ] 四份文件都存在于论文目录中
 - [ ] 主 README.md 论文状态已更新
 
