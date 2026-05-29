@@ -812,7 +812,7 @@ Acknowledgements We are grateful to Nal Kalchbrenner and Stephan Gouws for their
 # Figures
 
 Attention VisualizationsInput-Input Laye   
-![](images/b94091729c229b14a4a2f467189e0b69a5fa8daf3cc682be4bef0d269a0ab.jpg)  
+![](images/b94091729c229b14a4a2f46f367189e0b69a5fa8daf3cc682be4bef0d269a0ab.jpg)  
 Figure 3: An example of the attention mechanism following long-distance dependencies in the encoder self-attention in layer 5 of 6. Many of the attention heads attend to a distant dependency of the verb 'making', completing the phrase 'making...more difficult'. Attentions here shown only for the word 'making'. Different colors represent different heads. Best viewed in color.
 
 ![](images/5f0519f587dfa1718c4bb9aeb8f44e1307c30bd07d803bf6ef7aee5b5b386a5a.jpg)  
