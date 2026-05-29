@@ -19,9 +19,9 @@
 ```
 papers/XX-paper-name/
 ├── paper.pdf              # ① 论文原始 PDF
-├── raw-extract.md         # ② MinerU 转换的 Markdown
+├── raw-extract.md         # ② MinerU 转换的 Markdown + 图片
 ├── images/                # ② 提取的论文图片
-├── lecture.md             # ③ 独立中文讲解教程
+├── README.md              # ③ 独立中文讲解教程
 ├── merged-tutorial.md     # ④ 论文原文 + 讲解融合版（边看边学）
 └── figures-analysis.md    # 图表分析（工作文件）
 ```
@@ -32,7 +32,7 @@ papers/XX-paper-name/
 |---|------|---------|
 | ① | `paper.pdf` | 原始论文，引用参考 |
 | ② | `raw-extract.md` | 论文 Markdown 版，方便搜索/引用 |
-| ③ | `lecture.md` | 纯讲解版，系统学习时使用 |
+| ③ | `README.md` | 纯讲解版，系统学习时使用 |
 | ④ | `merged-tutorial.md` | 边看论文边听讲解，沉浸式精读 |
 
 ## 🔗 关联资源

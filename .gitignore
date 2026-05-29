@@ -1,3 +1,4 @@
 # LLM 论文精读教程生成工作流
 *.pdf
 node_modules/
+tex-source/
