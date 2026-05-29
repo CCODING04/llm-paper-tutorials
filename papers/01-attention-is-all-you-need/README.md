@@ -209,60 +209,37 @@ import torch.nn.functional as F
 import math
 
 def scaled_dot_product_attention(Q, K, V, mask=None):
-    """
-    Scaled Dot-Product Attention
-    
-    Args:
-        Q: (batch, seq_len, d_k) 查询矩阵
-        K: (batch, seq_len, d_k) 键矩阵
-        V: (batch, seq_len, d_v) 值矩阵
-        mask: 可选掩码 (batch, 1, seq_len)
-    
-    Returns:
-        output: (batch, seq_len, d_v) 注意力输出
-        attn_weights: (batch, seq_len, seq_len) 注意力权重
-    """
     d_k = Q.size(-1)
-    
-    # 第一步：计算点积分数
-    scores = torch.matmul(Q, K.transpose(-2, -1))  # (batch, seq_len, seq_len)
-    
-    # 第二步：缩放
-    scores = scores / math.sqrt(d_k)
-    
-    # 第三步：应用掩码（如果有的话）
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
     if mask is not None:
         scores = scores.masked_fill(mask == 0, float('-inf'))
-    
-    # 第四步：Softmax
     attn_weights = F.softmax(scores, dim=-1)
-    
-    # 第五步：加权求和
     output = torch.matmul(attn_weights, V)
-    
     return output, attn_weights
 
-
-# ===== 测试验证 =====
-batch_size = 2
-seq_len = 4
-d_k = d_v = 8
-
-Q = torch.randn(batch_size, seq_len, d_k)
-K = torch.randn(batch_size, seq_len, d_k)
-V = torch.randn(batch_size, seq_len, d_v)
-
+# 测试：3个位置，每个4维
+Q = torch.randn(1, 3, 4)
+K = torch.randn(1, 3, 4)
+V = torch.randn(1, 3, 4)
 output, weights = scaled_dot_product_attention(Q, K, V)
-
-print(f"Q shape: {Q.shape}")          # (2, 4, 8)
-print(f"K shape: {K.shape}")          # (2, 4, 8)
-print(f"V shape: {V.shape}")          # (2, 4, 8)
-print(f"Output shape: {output.shape}")  # (2, 4, 8)
-print(f"Weights shape: {weights.shape}")  # (2, 4, 4)
-print(f"Weights sum per row: {weights[0, 0].sum():.4f}")  # 应该是 1.0
+print(f"Q shape: {Q.shape}")
+print(f"Output shape: {output.shape}")
+print(f"Weights shape: {weights.shape}")
+print(f"Weights sum per row: {weights[0, 0].sum():.4f}")
+print(f"Weights:\n{weights[0].detach().numpy()}")
+```
+```
+Q shape: torch.Size([1, 3, 4])
+Output shape: torch.Size([1, 3, 4])
+Weights shape: torch.Size([1, 3, 3])
+Weights sum per row: 1.0000
+Weights:
+[[0.3017341  0.30983964 0.3884262 ]
+ [0.24509554 0.3801395  0.37476504]
+ [0.29378855 0.22932169 0.4768897 ]]
 ```
 
-运行一下，你会看到注意力权重的每一行加起来等于 1（因为 Softmax），输出维度和 V 一致。
+注意力权重的每一行加起来等于 1（因为 Softmax），输出维度和 V 一致。
 
 > 💡 发现了吗？核心就是三次矩阵乘法：Q×K^T、缩放、Softmax、再乘 V。整个过程中没有任何循环，全是矩阵运算——这就是 GPU 最擅长的事情！
 
@@ -365,16 +342,21 @@ class MultiHeadAttention(nn.Module):
         # 最终线性变换
         return self.W_o(attn_output)
 
-
-# ===== 测试 =====
+# 测试
 mha = MultiHeadAttention(d_model=512, n_heads=8)
 x = torch.randn(2, 10, 512)  # batch=2, seq_len=10, d_model=512
 output = mha(x, x, x)  # Self-Attention: Q=K=V=x
-print(f"Input:  {x.shape}")   # (2, 10, 512)
-print(f"Output: {output.shape}")  # (2, 10, 512)
+print(f"Input shape:  {x.shape}")
+print(f"Output shape: {output.shape}")
+print(f"参数数量: {sum(p.numel() for p in mha.parameters()):,}")
+```
+```
+Input shape:  torch.Size([2, 10, 512])
+Output shape: torch.Size([2, 10, 512])
+参数数量: 1,050,624
 ```
 
-> 注意 `mha(x, x, x)` 这里 Q、K、V 都是同一个输入——这就是 **Self-Attention**（自注意力）。如果是 Cross-Attention（比如 Decoder 关注 Encoder 的输出），Q 和 K、V 就来自不同的地方。
+> 注意 `mha(x, x, x)` 这里 Q、K、V 都是同一个输入——这就是 **Self-Attention**。如果是 Cross-Attention（Decoder 关注 Encoder 输出），Q 和 K、V 就来自不同的地方。
 
 ---
 
@@ -460,24 +442,31 @@ def positional_encoding(max_len=100, d_model=512):
     
     return PE
 
-# 生成并可视化
-pe = positional_encoding(max_len=100, d_model=128)
-
-plt.figure(figsize=(12, 6))
-plt.imshow(pe.numpy(), aspect='auto', cmap='RdBu')
-plt.xlabel('维度 $i$')
-plt.ylabel('位置 $pos$')
-plt.title('Positional Encoding 可视化')
-plt.colorbar(label='编码值')
-plt.tight_layout()
-plt.savefig('positional_encoding.png', dpi=150)
-print("位置编码已保存为 positional_encoding.png")
-print(f"形状: {pe.shape}")  # (100, 128)
+# 测试
+pe = positional_encoding(max_len=50, d_model=64)
+print(f"PE shape: {pe.shape}")
+print(f"PE[0][:8] = {pe[0][:8].tolist()}")
+print(f"PE[1][:8] = {pe[1][:8].tolist()}")
+```
+```
+PE shape: torch.Size([50, 64])
+PE[0][:8] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+PE[1][:8] = [0.8414709, 0.5403023, 0.6815614, 0.7317610, 0.5331684, 0.8460091, 0.4093089, 0.9123959]
 ```
 
-运行后你会看到一张热力图——每一行是一个位置的编码，横轴是维度。你会注意到：
-- 左边（低维度）的颜色变化快——高频，捕捉局部位置差异
-- 右边（高维度）的颜色变化慢——低频，捕捉全局位置信息
+位置 0 的偶数维度全是 sin(0)=0，奇数维度全是 cos(0)=1。位置 1 开始出现不同的值。
+
+下面这张热力图展示了前 50 个位置、前 64 个维度的编码值：
+
+![位置编码热力图](./images/pe_heatmap.png)
+
+你可以看到每一列（每个维度）都是一个不同频率的正弦波。低维度（左边）变化快，高维度（右边）变化慢——这就是"多尺度位置感知"。
+
+再看 4 个不同位置的编码曲线：
+
+![不同位置的编码曲线](./images/pe_positions.png)
+
+位置 0 是恒定值，位置越远曲线越"活跃"。不同位置的曲线形状完全不同——这就是 Transformer 能区分不同位置的原因。
 
 ---
 
