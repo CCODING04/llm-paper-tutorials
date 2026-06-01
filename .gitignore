@@ -1,4 +1,6 @@
 # LLM 论文精读教程生成工作流
-*.pdf
+# 不忽略论文 PDF（paper.pdf 需要提交）
+# 但忽略其他可能的 PDF（如 tex-source 中的）
+# *.pdf
 node_modules/
 tex-source/
