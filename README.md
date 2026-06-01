@@ -27,7 +27,7 @@
 
 | # | 论文 | 年份 | 核心主题 | 面试重要度 | 状态 |
 |---|------|------|---------|-----------|------|
-| 04 | [GPT-3](./papers/04-gpt3/) | 2020 | Few-shot / In-context Learning | ⭐⭐⭐⭐⭐ | 📋 待开始 |
+| 04 | [GPT-3](./papers/04-gpt3/) | 2020 | Few-shot / In-context Learning | ⭐⭐⭐⭐⭐ | ✅ 完成 |
 | 05 | [Chinchilla](./papers/05-chinchilla/) | 2022 | Scaling Laws / 计算最优 | ⭐⭐⭐⭐ | 📋 待开始 |
 
 ### 第四阶段：对齐与对话
