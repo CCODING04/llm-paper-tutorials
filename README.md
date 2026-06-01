@@ -102,7 +102,7 @@
 
 | # | 论文 | 年份 | 核心主题 | 面试重要度 | 状态 |
 |---|------|------|---------|-----------|------|
-| A1 | [DeepSeek-V3](./papers/A1-deepseek-v3/) | 2024 | MoE + MLA 架构 | ⭐⭐⭐⭐⭐ | 📋 待开始 |
+| A1 | [DeepSeek-V3](./papers/A1-deepseek-v3/) | 2024 | MoE + MLA + FP8 训练 | ⭐⭐⭐⭐⭐ | ✅ 完成 |
 | A2 | [DeepSeek-R1](./papers/A2-deepseek-r1/) | 2025 | 纯 RL 推理能力 | ⭐⭐⭐⭐⭐ | 📋 待开始 |
 
 
