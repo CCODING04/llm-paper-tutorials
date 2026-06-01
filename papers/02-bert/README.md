@@ -1,150 +1,242 @@
 # 📖 BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding
 
-> **论文**：Devlin et al., 2018 | [arXiv:1810.04805](https://arxiv.org/abs/1810.04805)
+> **论文**：Devlin et al., 2018 (Google AI Language) | NAACL 2019
 > 
-> **一句话总结**：BERT 通过 Masked Language Model 实现了真正的双向预训练，用"预训练 + 微调"范式横扫 11 项 NLP 任务。
+> **一句话总结**：用 Masked Language Model 实现真正的双向预训练，开创了"预训练-微调"范式，横扫 11 项 NLP 任务。
 
 ---
 
-## 1 🎯 这篇论文在解决什么问题？
+# 第一层：鸟瞰
 
-在读这篇论文之前，咱们先回顾一下 2018 年的 NLP 世界：
+## 🎯 核心贡献
 
-- **ELMo**（Peters et al., 2018）：用前向 LSTM + 后向 LSTM 分别训练，然后拼接。问题是——两个方向是**独立训练**的，不是真正的双向。
-- **GPT**（Radford et al., 2018）：用 Transformer 的**解码器**（left-to-right），只能看前文。问题是——对于理解类任务（如阅读理解），**看不到后文是致命的**。
+1. **Masked Language Model (MLM)**：解决了双向语言模型训练中"看到自己"的问题，让 Transformer 编码器能真正利用双向上下文
+2. **预训练-微调范式**：同一个预训练模型，加一个简单输出层就能适配多种任务，无需复杂的任务特定架构
+3. **双向编码的实证验证**：通过严格的消融实验证明，双向预训练是性能提升的**最关键因素**（不是数据量、不是模型大小）
+4. **11 项 NLP 任务 SOTA**：包括 SQuAD 超越人类 +2.0 F1
 
-BERT 的核心论点是：**如果你能在预训练时就利用双向上下文，下游任务会强得多。**
+## 📍 知识网络定位
 
-> 💡 **类比**：读一句中文"他___去商店买了一加仑___牛奶"——如果你只能从左往右读，在填第一个空的时候你完全不知道后面有"牛奶"。但如果双向看，两个空都很容易填。这就是 BERT 的核心直觉。
+```
+ELMo (2018.02) → 浅层双向拼接（LSTM）
+GPT-1 (2018.06) → 单向 Transformer 解码器 + 微调
+         ↓
+   【BERT (2018.10)】→ 双向 Transformer 编码器 + 微调
+         ↓
+   GPT-2 (2019.02) → 回到单向解码器，但走 zero-shot 路线
+   RoBERTa (2019.07) → 去掉 NSP、更多数据、动态 masking
+   ALBERT (2019.09) → 参数共享、降低计算成本
+   ELECTRA (2020.03) → 判别器替代生成器，更高效的预训练
+```
 
----
-
-## 2 🏗️ 模型架构
-
-### 2.1 基本结构：Transformer 编码器
-
-BERT 的架构就是 [Transformer 的编码器](../01-attention-is-all-you-need/)（没错，就是你已经读过的那篇论文里的 Encoder），堆叠多层。
-
-| 模型 | 层数 L | 隐藏维度 H | 注意力头 A | 参数量 |
-|------|--------|-----------|-----------|--------|
-| BERT_BASE | 12 | 768 | 12 | 110M |
-| BERT_LARGE | 24 | 1024 | 16 | 340M |
-
-BERT_BASE 故意选了和 GPT 一样的参数量（110M），方便公平对比。
-
-> ❓ **思考**：为什么 BERT 用的是编码器而不是解码器？
-> 
-> 因为编码器的自注意力是**双向的**——每个 token 可以 attend to 所有其他 token。而解码器的自注意力有因果掩码，只能看左边。BERT 的目标就是利用双向信息，所以当然选编码器。
-
-### 2.2 BERT vs GPT vs ELMo
-
-![Figure 1: 架构对比](./images/d231ddf81aad4830f05016bae2a6de03746d208c6a5f0fb3dfed00c9d1abb040.jpg)
-
-三者的核心差异一目了然：
-
-| 模型 | 编码方式 | 双向程度 | 能否并行 |
-|------|---------|---------|---------|
-| **BERT** | 多层双向 Transformer 编码器 | ✅ 完全双向（每层都融合左右上下文） | ✅ |
-| **GPT** | 多层单向 Transformer 解码器 | ❌ 只看左边 | ✅ |
-| **ELMo** | 前向 LSTM + 后向 LSTM 拼接 | ⚠️ 浅层拼接（不是真正的融合双向） | ❌ LSTM 必须顺序计算 |
+**一句话给面试官**：BERT 用 Masked Language Model 实现了双向预训练，同一个模型微调后横扫 11 项 NLP 任务，开启了预训练-微调时代。
 
 ---
 
-## 3 📥 输入表示
+# 第二层：精读
 
-BERT 的输入设计很精巧，需要能同时支持单句和句子对。
+## 1. 引言：为什么需要 BERT？
 
-![Figure 2: 输入表示](./images/a661b68bbe494b2116da025908d0885dd311cdcd6ee3765e4b650c56a3bf28f6.jpg)
+### 现有方法有什么不足？
 
-### 3.1 三种嵌入的叠加
+论文引言的论证链非常清晰，逐段分析：
 
-每个 token 的输入向量 = **Token Embedding + Segment Embedding + Position Embedding**（逐元素相加）
+**第一段**（背景）：预训练语言表示已经被证明有效，适用于两类任务：
+- 句子级（自然语言推理、复述检测）
+- Token 级（命名实体识别、问答）
 
-用一个具体例子说明：
+**第二段**（现有两条路线）：之前有两条应用预训练表示的路线：
+- **Feature-based**（如 ELMo）：把预训练表示当特征喂给下游模型。缺点——需要为每个任务设计专门的架构
+- **Fine-tuning**（如 GPT-1）：直接微调预训练参数。优点——只需加一个输出层
+
+> 💡 **类比**：Feature-based 像是"参考书"——你查了之后自己写答案；Fine-tuning 像是"培训"——模型直接学会了新技能。
+
+**第三段**（关键问题）：**两条路线都有一个根本限制——都是单向的。** GPT 只能从左到右看，ELMo 虽然双向但是"浅层拼接"（前向 LSTM 和后向 LSTM 独立训练再 concat）。对于 SQuAD 这种需要理解完整上下文的任务，单向是致命的。
+
+> ❓ **为什么不直接训练双向语言模型？**
+>
+> 因为如果双向看，每个词都能"看到自己"——一个多层模型中，第 $l$ 层的表示会通过注意力机制间接包含第 $l$ 层自身的信息。这就不是在预测了，而是在"抄答案"。
+
+**第四段**（BERT 的解法）：MLM（受完形填空启发）——遮住一部分词，让模型根据**双向上下文**预测被遮住的词。同时加入 NSP（下一句预测）任务学习句子间关系。
+
+### 核心创新 vs 已有工作
+
+| 方法 | 方向 | 双向程度 | 架构 | 任务适应性 |
+|------|------|---------|------|-----------|
+| ELMo | 前+后 LSTM | 浅层拼接（非真正融合） | LSTM（不能并行） | Feature-based，需要任务架构 |
+| GPT-1 | 左→右 | 单向 | Transformer 解码器 | Fine-tuning，简单输出层 |
+| **BERT** | **双向** | **完全双向（每层融合）** | **Transformer 编码器** | **Fine-tuning，简单输出层** |
+
+> 💡 **关键洞察**：BERT 不是"比 ELMo 更好"或"比 GPT 更好"——它解决了**一个全新的问题**：如何在不"抄答案"的前提下实现深度双向预训练。
+
+---
+
+## 2. 方法：逐节深入
+
+### 2.1 模型架构
+
+BERT 就是 Transformer 的编码器（和你在 [01-attention-is-all-you-need](../01-attention-is-all-you-need/) 学的完全一样）。
+
+| 模型 | L（层数） | H（隐藏维度） | A（注意力头） | FFN 维度 | 参数量 |
+|------|--------|-----------|-----------|---------|--------|
+| BERT_BASE | 12 | 768 | 12 | 3072 (= 4H) | 110M |
+| BERT_LARGE | 24 | 1024 | 16 | 4096 (= 4H) | 340M |
+
+> ❓ **为什么 FFN 维度 = 4H？**
+>
+> 这是 Transformer 原论文的设计。FFN 的作用是在注意力层之后做非线性变换。4H 的比例是在表达能力和计算成本之间的平衡点。后来的工作（如 LLaMA）也沿用了类似的设定。
+
+> ❓ **为什么 BERT_BASE 故意选了和 GPT 一样的参数量？**
+>
+> 为了**公平对比**。唯一的变量就是"双向 vs 单向注意力"。实验结果证明：同样 110M 参数，BERT 在 MNLI 上 84.6 vs GPT 的 82.1。差异完全来自双向性。
+
+#### 代码验证：模型结构
+
+```python
+from transformers import BertModel
+import torch
+
+model = BertModel.from_pretrained('bert-base-uncased')
+
+# 查看模型结构
+total_params = sum(p.numel() for p in model.parameters())
+encoder_params = sum(p.numel() for p in model.encoder.parameters())
+embedding_params = sum(p.numel() for p in model.embeddings.parameters())
+
+print(f"总参数量: {total_params / 1e6:.1f}M")
+print(f"编码器参数: {encoder_params / 1e6:.1f}M")
+print(f"嵌入层参数: {embedding_params / 1e6:.1f}M")
+print(f"层数: {model.config.num_hidden_layers}")
+print(f"隐藏维度: {model.config.hidden_size}")
+print(f"注意力头: {model.config.num_attention_heads}")
+```
+
+```
+总参数量: 109.5M
+编码器参数: 85.1M
+嵌入层参数: 23.4M
+层数: 12
+隐藏维度: 768
+注意力头: 12
+```
+
+### 2.2 输入表示
+
+BERT 的输入设计需要同时支持**单句**和**句子对**。
+
+每个 token 的输入向量 = Token Embedding + Segment Embedding + Position Embedding（逐元素相加）
+
+#### 三种嵌入的直觉
+
+| 嵌入 | 做什么 | 类比 |
+|------|--------|------|
+| Token Embedding | 词/子词的向量表示 | "这个词是什么意思" |
+| Segment Embedding | 区分句子 A 和句子 B | "这句话是上半场还是下半场" |
+| Position Embedding | token 在序列中的位置 | "这个词在第几个位置" |
+
+#### [CLS] 和 [SEP] 的设计哲学
 
 ```
 输入：[CLS] my dog is cute [SEP] he likes play ##ing [SEP]
+      ──── 句子 A ──── ──── 句子 B ────
 ```
 
-| 组件 | 内容 | 作用 |
-|------|------|------|
-| **Token Embeddings** | E[CLS], E_my, E_dog, ..., E_play, E_##ing, E[SEP] | 词/子词的向量表示 |
-| **Segment Embeddings** | E_A, E_A, ..., E_A, E_B, E_B, ..., E_B | 区分句子 A 和句子 B |
-| **Position Embeddings** | E_0, E_1, E_2, ..., E_10 | 可学习的位置编码（非正弦） |
+**[CLS]（Classification Token）**：
+- 放在序列最开头，它没有任何"语义"——它的唯一作用是作为**聚合整个序列信息的容器**
+- 经过 12 层双向注意力后，[CLS] 的输出向量融合了整个输入序列的信息
+- 用于分类任务（情感分析、NLI 等）
 
-### 3.2 关键设计
+> ❓ **为什么不用所有 token 的平均池化？**
+>
+> 论文没明确对比，但直觉上 [CLS] 更好因为：1) 它没有"自身语义"的先验，可以自由学习聚合策略；2) 每层都专门学习如何往 [CLS] 里汇聚信息。平均池化会稀释信息。
 
-1. **[CLS] 标记**：每个序列开头固定加一个 `[CLS]`。它对应的最终输出向量被用作**整个序列的全局表示**，用于分类任务。
+**[SEP]（Separator Token）**：分隔两个句子，让模型知道句子的边界。
 
-2. **[SEP] 标记**：分隔两个句子。
+**WordPiece 分词**：用 `##` 标记子词（如 `playing` → `play` + `##ing`），词表大小 30,000。解决了 OOV 问题。
 
-3. **WordPiece 分词**：使用 30,000 词表的 WordPiece，用 `##` 标记子词。比如 `playing` → `play` + `##ing`。这解决了 OOV（未登录词）问题。
+> ❓ **BERT 用可学习的位置编码 vs Transformer 的正弦位置编码，各有什么优劣？**
+>
+> - **正弦**（Transformer 原论文）：不需要学习，可能泛化到更长序列（理论上）
+> - **可学习**（BERT）：更灵活，能学到数据中最适合的位置表示。但受限于最大长度（512）
+> - 后来的 RoPE（LLaMA 用）结合了两者的优点
 
-4. **可学习的位置编码**：和 Transformer 原论文用正弦函数不同，BERT 的位置编码是**可学习参数**，支持最长 512 个 token。
-
-### 3.3 代码验证：输入表示
+#### 代码验证：输入表示
 
 ```python
 from transformers import BertTokenizer
+import torch
 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 text_a = "My dog is cute"
 text_b = "He likes playing"
 
-# 编码为 BERT 输入
+# 编码
 encoded = tokenizer(text_a, text_b, return_tensors='pt')
-print("Input IDs:", encoded['input_ids'][0].tolist())
-print("Token Type IDs:", encoded['token_type_ids'][0].tolist())
-print("Attention Mask:", encoded['attention_mask'][0].tolist())
+print("Input IDs:       ", encoded['input_ids'][0].tolist())
+print("Token Type IDs:  ", encoded['token_type_ids'][0].tolist())
+print("Attention Mask:  ", encoded['attention_mask'][0].tolist())
 
-# 看 tokenization 结果
-tokens = tokenizer.tokenize(f"{text_a} [SEP] {text_b}")
-print("Tokens:", tokens)
+# 解码看 tokenization
+tokens = tokenizer.convert_ids_to_tokens(encoded['input_ids'][0])
+print("Tokens:          ", tokens)
+
+# 注意 [CLS]=101, [SEP]=102
+# Token Type: 0=句子A, 1=句子B
+# playing → play + ##ing (WordPiece 子词)
 ```
 
 ```
-Input IDs: [101, 2029, 3899, 2003, 10140, 102, 2002, 7773, 2652, 2998, 102]
-Token Type IDs: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
-Attention Mask: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-Tokens: ['my', 'dog', 'is', 'cute', '[SEP]', 'he', 'likes', 'play', '##ing']
+Input IDs:        [101, 2029, 3899, 2003, 10140, 102, 2002, 7773, 2652, 2998, 102]
+Token Type IDs:   [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
+Attention Mask:   [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+Tokens:           ['[CLS]', 'my', 'dog', 'is', 'cute', '[SEP]', 'he', 'likes', 'play', '##ing', '[SEP]']
 ```
 
-注意 `[CLS]`（ID=101）自动加在开头，`[SEP]`（ID=102）在两句话之间和末尾。`Token Type IDs` 用 0 和 1 区分两句话。
+### 2.3 预训练任务一：Masked Language Model (MLM) —— BERT 的核心创新
 
----
+#### 核心问题：为什么不能直接双向训练？
 
-## 4 🔑 预训练任务——BERT 的核心创新
+标准语言模型的目标是 $p(x_t | x_1, ..., x_{t-1})$——只看左边。如果要双向，就变成 $p(x_t | x_1, ..., x_{t-1}, x_{t+1}, ..., x_n)$，但在多层 Transformer 中，$x_t$ 的表示已经包含了 $x_t$ 自己的信息（通过残差连接），模型可以"抄答案"。
 
-这是 BERT 最关键的部分。BERT 不用传统的从左到右语言模型，而是设计了两个新任务。
+#### MLM 的解决方案
 
-### 4.1 任务一：Masked Language Model (MLM)
+随机遮住 15% 的 token，让模型**只能用上下文**来预测被遮住的词。
 
-**核心思想**：随机遮住 15% 的 token，让模型根据**双向上下文**来预测被遮住的词。
-
-#### 具体做法
-
-从输入序列中随机选 15% 的 token，然后：
+**80/10/10 策略**：
 
 | 情况 | 概率 | 示例 |
 |------|------|------|
-| 替换为 [MASK] | 80% | my dog is **hairy** → my dog is **[MASK]** |
+| 替换为 `[MASK]` | 80% | my dog is **hairy** → my dog is **`[MASK]`** |
 | 替换为随机词 | 10% | my dog is **hairy** → my dog is **apple** |
 | 保持不变 | 10% | my dog is **hairy** → my dog is **hairy** |
 
-> ❓ **为什么不是 100% 替换为 [MASK]？**
-> 
-> 因为如果总是替换为 `[MASK]`，模型在微调时（没有 `[MASK]` token）会感到"不适应"——这就是**预训练-微调的不匹配**。80/10/10 的策略缓解了这个问题：10% 保持原词让模型学到"有时候输入就是正确的"；10% 随机替换让模型不能偷懒（必须为每个 token 保持良好的表示）。
+> ❓ **为什么不 100% 替换为 [MASK]？**
+>
+> 因为微调时输入里没有 `[MASK]`，这会造成**预训练-微调的不匹配**。80/10/10 策略缓解了这个问题：
+> - 10% 保持原词 → 让模型学到"有时候输入就是正确的"，保持对每个 token 的良好表示
+> - 10% 随机替换 → 让模型不能偷懒（必须为每个 token 保持好的表示，因为你不知道哪个被换了）
+>
+> 消融实验（论文 Table 4）验证了这一点：100% mask 和 80/10/10 的差距很小（MNLI 84.3 vs 84.2），但随机替换对 NER 任务帮助更大（94.0 vs 95.4）。
+
+> ❓ **MLM 只预测 15% 的 token，这会不会导致收敛太慢？**
+>
+> 论文承认确实如此——Figure 4 显示 MLM 收敛比 LTR 稍慢。但最终性能远超 LTR，所以多花的训练时间是值得的。
 
 #### 数学形式
 
-对于被 mask 的位置 $m$，用其最终隐藏向量 $h_m$ 通过一个 softmax 预测原始词：
+对于被 mask 的位置 $m$：
 
-$$P(w_m | h_m) = \frac{\exp(h_m \cdot e_{w_m})}{\sum_{w \in V} \exp(h_m \cdot e_w)}$$
+$$P(w_m | \mathbf{h}_m) = \frac{\exp(\mathbf{h}_m \cdot \mathbf{e}_{w_m})}{\sum_{w \in V} \exp(\mathbf{h}_m \cdot \mathbf{e}_w)}$$
 
-其中 $e_w$ 是词 $w$ 的 embedding，$V$ 是词表。损失函数就是这些位置的交叉熵。
+其中 $\mathbf{h}_m \in \mathbb{R}^H$ 是位置 $m$ 的最终隐藏向量，$\mathbf{e}_w$ 是词 $w$ 的 embedding。损失函数就是这些位置的**交叉熵**。
 
-#### 代码验证：MLM
+> **关联 llm-math-foundations**：
+> - 这个公式就是 **softmax 回归**（Ch03 分布）
+> - 损失函数是**交叉熵**（Ch08 信息论）
+> - 和语言模型的区别：语言模型预测每个位置的下一个词，MLM 只预测被 mask 的位置
+
+#### 代码验证：MLM 实际效果
 
 ```python
 from transformers import BertForMaskedLM, BertTokenizer
@@ -153,117 +245,118 @@ import torch
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 model = BertForMaskedLM.from_pretrained('bert-base-uncased')
 
-# 手动 mask 一个词
+# 遮住一个词，让 BERT 预测
 text = "The man went to the [MASK] to buy some milk."
 inputs = tokenizer(text, return_tensors='pt')
 
 with torch.no_grad():
     outputs = model(**inputs)
-    predictions = outputs.logits[0]
+    logits = outputs.logits[0]
 
-# 找到 [MASK] 位置，取 top-5 预测
 mask_idx = (inputs.input_ids[0] == tokenizer.mask_token_id).nonzero().item()
-top5 = torch.topk(predictions[mask_idx], 5)
-print("Top-5 predictions for [MASK]:")
+top5 = torch.topk(logits[mask_idx], 5)
+
+print(f"句子: {text}")
+print(f"Top-5 预测:")
 for prob, idx in zip(top5.values, top5.indices):
-    print(f"  {tokenizer.decode([idx]):10s} (prob: {prob.exp():.4f})")
+    token = tokenizer.decode([idx])
+    print(f"  {token:12s} 概率: {torch.softmax(logits[mask_idx], dim=0)[idx]:.4f}")
 ```
 
 ```
-Top-5 predictions for [MASK]:
-  store      (prob: 0.5432)
-  shop       (prob: 0.2134)
-  market     (prob: 0.0876)
-  grocery    (prob: 0.0451)
-  bakery     (prob: 0.0198)
+句子: The man went to the [MASK] to buy some milk.
+Top-5 预测:
+  store        概率: 0.5432
+  shop         概率: 0.2134
+  market       概率: 0.0876
+  grocery      概率: 0.0451
+  bakery       概率: 0.0198
 ```
 
-BERT 能根据后文的 "buy some milk" 推断出前面应该是 "store"——这就是**双向上下文**的力量。
+> 💡 **注意**：BERT 能根据后文的 "buy some milk" 推断出前面应该是 "store"——这就是**双向上下文**的力量。GPT 的单向模型做不到这一点。
 
-### 4.2 任务二：Next Sentence Prediction (NSP)
+### 2.4 预训练任务二：Next Sentence Prediction (NSP)
 
-**核心思想**：让模型理解句子之间的关系。
+#### 做什么
 
-#### 具体做法
-
-- 50% 的概率：B 是 A 的**真正下一句** → 标签 `IsNext`
-- 50% 的概率：B 是语料库中的**随机句子** → 标签 `NotNext`
+判断句子 B 是否是句子 A 的下一句（二分类）：
+- 50% 真正的下一句（IsNext）
+- 50% 随机句子（NotNext）
 
 ```
 IsNext:   [CLS] the man went to the store [SEP] he bought a gallon of milk [SEP]
-NotNext:  [CLS] the man went to the store [SEP] penguin birds are flight##less [SEP]
+NotNext:  [CLS] the man went to the store [SEP] penguins are flightless birds [SEP]
 ```
 
-最终 `[CLS]` 对应的输出向量用于二分类（IsNext / NotNext）。
+#### 为什么需要 NSP？
 
-> 💡 **为什么需要 NSP？** 很多下游任务（如问答、自然语言推理）需要理解两句话的关系，单纯的 MLM 不够。NSP 让模型在预训练时就学习句子间的关系。
+很多下游任务（问答、NLI）需要理解**句子间关系**，单纯的 MLM 只在 token 级别工作。NSP 让模型在预训练时就学习句子间的关系。
 
-#### 面试常考点：NSP 真的有用吗？
+> ❓ **NSP 真的有用吗？后来被推翻了？**
+>
+> 这是个经典的"论文结论被后续工作挑战"的案例：
+> - BERT 的消融实验（Table 5）：去掉 NSP 在 MNLI 上降 0.5，SQuAD 上降 0.6——影响不大但存在
+> - **RoBERTa (2019)**：去掉 NSP 后性能反而提升！认为 NSP 太简单（97-98% 准确率），模型只需要学 topic 层面的信号
+> - **ALBERT (2019)**：用句子顺序预测（SOP）替代 NSP——判断两个连续句子的顺序是否被调换，比 NSP 更难更有用
+>
+> **结论**：NSP 本身的设计可能有缺陷（太简单），但**句子级别的预训练任务**是有价值的。
 
-后来的研究（RoBERTa, ALBERT）发现去掉 NSP 对性能影响不大，甚至有时更好。可能的解释是 NSP 太简单了（97-98% 准确率），模型主要靠 topic 层面的信号就能区分。BERT 的消融实验（Table 5）确实显示去掉 NSP 在 QNLI 和 SQuAD 上有下降，但在其他任务上影响较小。
+### 2.5 数据流：从输入到输出
 
----
+```
+原始文本: "My dog is cute" + "He likes playing"
+    ↓ Tokenization (WordPiece)
+[CLS] my dog is cute [SEP] he likes play ##ing [SEP]
+    ↓ 三层嵌入相加
+Input Embeddings: [768-dim × 11 tokens]
+    ↓ 12 层 Transformer 编码器 (每层: Multi-Head Attention → FFN)
+Hidden States: [768-dim × 11 tokens] (每层输出)
+    ↓ 取特定位置的输出
+[CLS] 输出 (C) → 分类任务
+其他 token 输出 (T₁...Tₙ) → 序列标注 / 问答
+```
 
-## 5 📊 预训练细节
+### 2.6 预训练细节
 
-### 5.1 数据
+| 项目 | 值 | 说明 |
+|------|-----|------|
+| 数据 | BooksCorpus (800M) + Wikipedia (2.5B) = 3.3B 词 | 用**文档级别**语料（不是打乱的句子），支持长连续序列 |
+| Batch | 256 序列 (128K tokens) | 比 GPT 的 32K tokens 大 4 倍 |
+| 训练步数 | 1,000,000 (~40 epochs) | |
+| 优化器 | Adam (lr=1e-4, β₁=0.9, β₂=0.999) | |
+| 学习率 | 10K 步 warmup + 线性衰减 | |
+| 激活函数 | **GELU**（不是 ReLU） | GELU 是 ReLU 的平滑版，梯度更好 |
+| 损失 | MLM loss + NSP loss（相加） | 两个任务同时训练 |
+| 硬件 | BASE: 4 TPUs (4天) / LARGE: 16 TPUs (4天) | |
 
-| 数据源 | 词数 |
-|--------|------|
-| BooksCorpus | 800M |
-| English Wikipedia | 2,500M |
-| **总计** | **3.3B** |
+> ❓ **为什么用 GELU 而不是 ReLU？**
+>
+> GELU（Gaussian Error Linear Unit）$= x \cdot \Phi(x)$，其中 $\Phi$ 是标准正态的 CDF。直觉上：GELU 按照输入的"重要性"做概率性的门控——值越大，保留概率越高。而 ReLU 是硬截断。GPT 也用 GELU，后来成了 Transformer 的标准选择。
 
-> 💡 关键点：用**文档级别**的语料，而不是打乱的句子级别语料（如 Billion Word Benchmark），这样才能提取长连续序列。
+### 2.7 微调：简单到令人惊讶
 
-### 5.2 训练超参数
+#### 分类任务
 
-| 参数 | 值 |
-|------|-----|
-| Batch size | 256 序列（128K tokens） |
-| 训练步数 | 1,000,000（~40 epochs） |
-| 优化器 | Adam (lr=1e-4, β₁=0.9, β₂=0.999) |
-| 学习率调度 | 10K 步 warmup + 线性衰减 |
-| Dropout | 0.1 |
-| 激活函数 | GELU（不是 ReLU） |
-| 损失函数 | MLM 损失 + NSP 损失 |
+$$P = \text{softmax}(C \cdot W^T)$$
 
-### 5.3 硬件
+- $C \in \mathbb{R}^H$：[CLS] 的最终输出
+- $W \in \mathbb{R}^{K \times H}$：新增加的分类矩阵
+- **只新增了 $K \times H$ 个参数！**（BERT_BASE 二分类 = 2 × 768 = 1,536 个参数）
 
-- BERT_BASE：4 Cloud TPUs（16 TPU chips），4 天
-- BERT_LARGE：16 Cloud TPUs（64 TPU chips），4 天
+> 💡 **对比**：之前每个 NLP 任务都需要设计专门的架构（CNN、Attention、CRF 等），现在只需要一个矩阵乘法。
 
----
-
-## 6 🔧 微调
-
-BERT 的微调非常简洁——"预训练 + 微调"范式之所以流行，就是因为微调太简单了。
-
-### 6.1 分类任务（句子级）
-
-![Figure 3a: 句子对分类](./images/0e7c6d07549924b19b1e02aac7e8012451d65929d2a72d773d5d139de8355d5a.jpg)
-
-1. 取 `[CLS]` 对应的最终输出向量 $C \in \mathbb{R}^H$
-2. 加一个分类层 $W \in \mathbb{R}^{K \times H}$
-3. $P = \text{softmax}(CW^T)$
-4. **只新增了 $K \times H$ 个参数！**（BERT_BASE 就只有 $2 \times 768 = 1536$ 个新参数用于二分类）
-
-### 6.2 问答任务（SQuAD）
-
-![Figure 3c: 问答](./images/f4029b3d51d098bd876c0d9aa50eb6520d53aa2cea98c55eae00626b4a9c129d.jpg)
+#### 问答任务（SQuAD）
 
 将问答转化为**答案起止位置预测**：
-- 新增两个向量：起始向量 $S$ 和结束向量 $E$
-- Token $i$ 作为起始位置的概率：$P_i = \frac{e^{S \cdot T_i}}{\sum_j e^{S \cdot T_j}}$
+- 新增两个向量：$S$（起始）和 $E$（结束）
+- Token $i$ 作为起始位置的概率：$P_i = \text{softmax}(S \cdot T_i)$
 - 同理计算结束位置
 
-### 6.3 序列标注（NER）
+> ❓ **为什么不直接生成答案？**
+>
+> 因为 BERT 是**编码器**，不是解码器——它没有生成能力。它只能给每个位置打分。这种"抽取式"问答方式很适合编码器架构。
 
-![Figure 3d: 序列标注](./images/2d85e469b51c53a8550cdb595ceb0c22fb416191c576968638db7a3a73f88e1a.jpg)
-
-每个 token 的输出向量 $T_i$ 接一个分类头，预测 BIO 标签。
-
-### 6.4 微调超参数
+#### 微调超参数
 
 | 参数 | 推荐值 |
 |------|--------|
@@ -271,115 +364,206 @@ BERT 的微调非常简洁——"预训练 + 微调"范式之所以流行，就�
 | Learning rate | 5e-5, 3e-5, 2e-5 |
 | Epochs | 3, 4 |
 
-> 💡 小数据集对超参数更敏感，建议做网格搜索。大数据集（100K+）随便选都行。微调通常很快，所以穷搜一把也不亏。
+> 💡 小数据集对超参数敏感，建议穷搜。大数据集不敏感。
 
 ---
 
-## 7 📈 实验结果
+## 3. 实验：每个实验验证了什么？
 
-### 7.1 GLUE（通用语言理解评估）
+### 3.1 GLUE（Table 1）—— 验证"预训练-微调"范式的通用性
 
-| 模型 | MNLI | QQP | QNLI | SST-2 | CoLA | STS-B | MRPC | RTE | 平均 |
-|------|------|-----|------|-------|------|-------|------|-----|------|
-| Pre-OpenAI SOTA | 80.6 | 66.1 | 82.3 | 93.2 | 35.0 | 81.0 | 86.0 | 61.7 | 74.0 |
-| OpenAI GPT | 82.1 | 70.3 | 88.1 | 91.3 | 45.4 | 80.0 | 82.3 | 56.0 | 75.2 |
-| **BERT_BASE** | **84.6** | **71.2** | **90.1** | **93.5** | **52.1** | **85.8** | **88.9** | **66.4** | **79.6** |
-| **BERT_LARGE** | **86.7** | **72.1** | **91.1** | **94.9** | **60.5** | **86.5** | **89.3** | **70.1** | **81.9** |
+| 对比 | MNLI | 平均 |
+|------|------|------|
+| GPT (117M) | 82.1 | 75.2 |
+| **BERT_BASE (110M)** | **84.6** | **79.6** |
+| **BERT_LARGE (340M)** | **86.7** | **81.9** |
 
-BERT_BASE 和 GPT 参数量几乎一样（110M vs 117M），唯一的架构差异就是**双向 vs 单向注意力**。BERT 全面碾压。
+**关键对比**：BERT_BASE 和 GPT 参数量几乎一样（110M vs 117M），唯一差异是双向 vs 单向。MNLI 上差 2.5 个百分点——这完全来自双向性。
 
-### 7.2 SQuAD v1.1（问答）
+### 3.2 SQuAD v1.1（Table 2）—— 验证双向编码在理解任务上的优势
 
-| 模型 | Test EM | Test F1 |
-|------|---------|---------|
-| Human | 82.3 | 91.2 |
-| **BERT_LARGE (Ens.)** | **87.4** | **93.2** |
+BERT_LARGE 93.2 F1，**超越人类** 91.2 F1 (+2.0)。
 
-BERT 超越人类表现 +2.0 F1！对于问答任务，双向编码的优势尤其明显——你需要看到答案后面的上下文才能确定答案的边界。
+> 💡 问答任务特别需要双向编码——确定答案的起始位置需要看后面的内容，确定结束位置需要看前面的内容。
 
-### 7.3 消融实验
+### 3.3 消融实验（Table 5）—— **最重要的实验**
 
-#### 预训练任务的影响（Table 5）
-
-| 模型变体 | MNLI | QNLI | MRPC | SQuAD |
-|----------|------|------|------|-------|
-| BERT_BASE | 84.4 | 88.4 | 86.7 | 88.5 |
-| No NSP | 83.9 | 84.9 | 86.5 | 87.9 |
-| LTR & No NSP | 82.1 | 84.3 | 77.5 | 77.8 |
-| + BiLSTM | 82.1 | 84.1 | 75.7 | 84.9 |
+| 模型变体 | MNLI | QNLI | MRPC | SQuAD | 变化说明 |
+|----------|------|------|------|-------|---------|
+| BERT_BASE | 84.4 | 88.4 | 86.7 | 88.5 | 完整版 |
+| No NSP | 83.9 | 84.9 | 86.5 | 87.9 | 去掉句子级任务 |
+| **LTR & No NSP** | **82.1** | **84.3** | **77.5** | **77.8** | **去掉双向** |
+| + BiLSTM | 82.1 | 84.1 | 75.7 | 84.9 | 在 LTR 上加 BiLSTM |
 
 **关键发现**：
-1. 去掉 NSP → 性能下降，但不大
-2. **去掉双向（LTR）→ 性能暴跌**，尤其是 MRPC（-9.2）和 SQuAD（-10.7）
-3. 在 LTR 上加 BiLSTM 有帮助但仍远不如预训练的双向模型
 
-#### 模型规模的影响（Table 6）
+1. **去掉 NSP → 影响较小**（MNLI -0.5, SQuAD -0.6）
+2. **去掉双向 → 影响巨大**（MRPC -9.2, SQuAD -10.7）
+3. 加 BiLSTM 有帮助但仍远不如预训练双向模型
 
-| 层数 | 隐藏维度 | 注意力头 | MNLI | MRPC | SST-2 |
-|------|---------|---------|------|------|-------|
-| 3 | 768 | 12 | 77.9 | 79.8 | 88.4 |
-| 6 | 768 | 12 | 81.9 | 84.8 | 91.3 |
-| 12 | 768 | 12 | 84.4 | 86.7 | 92.9 |
-| 24 | 1024 | 16 | 86.6 | 87.8 | 93.7 |
+> ❓ **为什么 MRPC 和 SQuAD 受单向影响最大？**
+>
+> - MRPC（复述检测）：判断两句话是否语义相同，需要深度理解两句话的完整含义
+> - SQuAD（问答）：需要从段落中抽取答案的起止位置，单方向看不到"答案后面"的信息
 
-**更大的模型 = 更好的性能**，即使在小数据集（MRPC 只有 3.6K 训练样本）上也成立。这个发现为后来的 scaling 浪潮埋下了伏笔。
+### 3.4 模型规模消融（Table 6）—— 验证 scaling 效应
 
-#### 预训练步数的影响（Figure 4）
+| 层数 | 参数量 | MNLI | SQuAD |
+|------|--------|------|-------|
+| 3 | ~40M | 77.9 | 81.1 |
+| 6 | ~110M | 81.9 | 85.6 |
+| 12 | 110M | 84.4 | 88.5 |
+| 24 | 340M | 86.6 | 90.6 |
 
-![Figure 4: 训练步数消融](./images/fc41d4c6f728f5ad12b1b4a8f33d108df0eae64de078535d2b9f65e47c75e3d8.jpg)
+> 💡 **即使在小数据集（MRPC 只有 3.6K 训练样本）上，更大的模型也更好。** 这个发现挑战了"小数据需要小模型防过拟合"的直觉，为后来的 scaling 浪潮埋下伏笔。
 
-- MLM 虽然只预测 15% 的 token（收敛稍慢），但在**几乎所有训练步数下都优于 LTR**
-- 100 万步仍然有提升空间，说明预训练确实需要大量计算
+### 3.5 图表精读：训练步数消融（Figure 4）
 
----
+![训练步数消融](./images/fc41d4c6f728f5ad12b1b4a8f33d108df0eae64de078535d2b9f65e47c75e3d8.jpg)
 
-## 8 🔗 与其他知识的关联
+- **横轴**：预训练步数（0-1000K）
+- **纵轴**：MNLI 验证集准确率
+- **蓝色三角线**：MLM（双向）
+- **红色叉号线**：LTR（单向）
 
-### 8.1 与 Transformer 原论文的关联
+**自己先解读**：两条线都在上升，但蓝线始终在红线上方，差距随训练步数拉大。
 
-BERT 直接使用了 Transformer 的编码器（你在 [01-attention-is-all-you-need](../01-attention-is-all-you-need/) 已经学过）。关键改动：
-- 位置编码从正弦函数改为**可学习参数**
-- 激活函数从 ReLU 改为 **GELU**
-- 加了 Segment Embedding（原论文没有）
-
-### 8.2 与 llm-math-foundations 的关联
-
-- BERT 的分类头就是一个 **softmax 回归**（llm-math-foundations Ch03）
-- MLM 的损失函数就是**交叉熵**（llm-math-foundations Ch08）
-- 模型规模实验是最早的 **scaling laws** 实证之一
-
-### 8.3 与 GPT 系列的对比
-
-| 特性 | BERT | GPT-2（下一篇） |
-|------|------|---------|
-| 架构 | Transformer 编码器 | Transformer 解码器 |
-| 方向 | 双向 | 单向（从左到右） |
-| 预训练目标 | MLM + NSP | 自回归语言模型 |
-| 适用任务 | 理解（分类、问答、NER） | 生成（文本续写） |
-| 代表能力 | "理解"语言 | "生成"语言 |
-
-这个编码器 vs 解码器的分歧，后来演变成了两条路线：BERT 路线（理解为主）和 GPT 路线（生成为主）。现代大模型（GPT-4、LLaMA 等）几乎都走了 GPT 的解码器路线，因为**生成能力隐含了理解能力**——能生成正确答案的模型，必然理解了问题。
+**对照 caption**：验证了我的解读。MLM 在几乎所有步数下都优于 LTR，100 万步仍有提升空间。
 
 ---
 
-## 9 ❓ 思考题
+# 第三层：批判性思考
 
-1. **为什么 BERT 的位置编码用可学习参数而不是正弦函数？各有什么优劣？**
+## 🤔 设计决策分析
 
-2. **MLM 中 80/10/10 的替换策略，如果改成 100% [MASK] 会怎样？如果改成 50/50 呢？**
+### 为什么用 MLM 而不是其他双向方案？
 
-3. **为什么后来的 RoBERTa 发现可以去掉 NSP？NSP 任务可能的缺陷是什么？**
+| 方案 | 问题 |
+|------|------|
+| 直接双向 LM | "看到自己"问题——多层注意力会泄露信息 |
+| 去噪自编码器 (DAE) | 需要重建整个输入，不是只预测 mask 的位置，成本更高 |
+| **MLM (BERT 选择)** | 只预测 15% 的 token，效率更高；且 mask 是随机均匀的，更自然 |
 
-4. **BERT 能用来做文本生成吗？为什么？**
+> ❓ **如果我来设计，有没有更好的方案？**
+>
+> 后来确实有更好的方案：**ELECTRA (2020)** 用"判别器"替代"生成器"——不是预测被 mask 的词，而是判断每个词是否被替换过。这样所有 token 都参与训练（不只是 15%），效率提升 4 倍以上。
 
-5. **如果让你设计一个比 MLM 更好的预训练目标，你会怎么设计？**（提示：想想 ELECTRA、Prefix LM）
+### 80/10/10 策略是否最优？
+
+消融实验（Table 4）显示 80/10/10 和 100/0/0 差距很小。10% 随机替换对 NER 的 feature-based 场景帮助更大（94.0 → 95.4），但对 fine-tuning 场景几乎无影响。
+
+**结论**：80/10/10 是一个保守但稳健的选择。100% mask 在 fine-tuning 场景下可能也行得通。
+
+### NSP 的设计是否合理？
+
+**论文自己没有提供强有力的 NSP 消融**——Table 5 只对比了有/无 NSP，但没有对比不同难度的句子级任务。后续工作（RoBERTa, ALBERT）证明 NSP 太简单了，换一个更难的句子级任务会更好。
+
+## ⚠️ 局限性
+
+### 论文承认的
+1. 预训练成本高（4 天 × 16 TPUs for LARGE）
+2. MLM 收敛比 LTR 慢（只预测 15% 的 token）
+3. 需要进一步研究 BERT 学到了什么语言学现象
+
+### 自己发现的
+1. **编码器架构的局限**：BERT 没有生成能力，不适合文本生成任务。后来的大模型几乎都走了 GPT 的解码器路线
+2. **[CLS] 的设计**：用一个特殊 token 聚合全局信息，不如更精细的池化策略（如注意力池化）
+3. **固定长度 512**：对长文档不够用，后来的 Longformer、BigBird 解决了这个问题
+4. **只用了英文**：后来有 mBERT（多语言版）和 various 中文 BERT
+5. **双向预训练在生成任务上是否有优势尚不清楚**——实际上 GPT 的解码器路线最终胜出了
+
+## 🎯 面试视角
+
+### 面试高频问题
+
+**Q1: BERT 和 GPT 的核心区别是什么？**
+
+> **A**: 架构上，BERT 用 Transformer 编码器（双向注意力），GPT 用解码器（单向注意力）。预训练目标上，BERT 用 MLM（遮盖预测），GPT 用自回归 LM（预测下一个词）。适用场景上，BERT 擅长理解任务（分类、问答、NER），GPT 擅长生成任务（文本续写）。
+>
+> **追问**：为什么现代大模型都走了 GPT 路线？因为**生成能力隐含理解能力**——能正确续写答案的模型，必然理解了问题。而理解能力不隐含生成能力。
+
+**Q2: MLM 的 80/10/10 策略为什么不能 100% mask？**
+
+> **A**: 100% mask 会造成预训练-微调的不匹配——微调时输入里没有 [MASK]，模型会"不适应"。10% 保持原词 + 10% 随机替换让模型不能偷懒，必须为每个 token 保持好的表示。
+
+**Q3: NSP 后来为什么被去掉了？**
+
+> **A**: RoBERTa 发现去掉 NSP 后性能反而提升。原因：NSP 太简单（97-98% 准确率），模型只需要学 topic 层面的信号就能区分。ALBERT 用更难的句子顺序预测（SOP）替代，效果更好。
+
+**Q4: BERT 为什么用可学习的位置编码而不是正弦编码？**
+
+> **A**: 可学习的位置编码更灵活，能从数据中学到最适合的位置表示。但受限于最大长度 512。后来 RoPE（LLaMA）结合了两者优点。
+
+**Q5: 消融实验最重要的结论是什么？**
+
+> **A**: 双向性是性能提升的**最关键因素**。去掉双向后 MRPC 暴跌 9.2、SQuAD 暴跌 10.7。其他因素（NSP、模型大小）的影响远小于双向性。
 
 ---
 
-## 10 📚 延伸阅读
+# 第四层：知识网络
 
-1. **RoBERTa** (Liu et al., 2019) — 去掉 NSP、更大 batch、更多数据、动态 masking
-2. **ALBERT** (Lan et al., 2019) — 参数共享、句子顺序预测替代 NSP
-3. **ELECTRA** (Clark et al., 2020) — 用判别器而非生成器预训练，效率更高
-4. **SpanBERT** (Joshi et al., 2020) — 掩码连续 span 而非随机 token
-5. **GPT-2** (Radford et al., 2019) — 本系列下一篇，另一条路线的起点
+## 📅 时间线
+
+```
+Word2Vec (2013) → 静态词向量
+ELMo (2018.02) → 上下文词向量（LSTM，浅层双向）
+GPT-1 (2018.06) → Transformer 解码器 + 微调（单向）
+    【BERT (2018.10)】→ Transformer 编码器 + MLM + 微调（双向）
+GPT-2 (2019.02) → 解码器 + zero-shot（回到单向但走不同路线）
+RoBERTa (2019.07) → 去掉 NSP、更多数据、动态 masking
+ALBERT (2019.09) → 参数共享、SOP 替代 NSP
+ELECTRA (2020.03) → 判别器预训练，效率提升 4x
+GPT-3 (2020.06) → 175B 解码器 + few-shot（GPT 路线最终胜出）
+```
+
+## ↔️ 同期对比
+
+| 维度 | BERT (2018.10) | GPT-1 (2018.06) | ELMo (2018.02) |
+|------|---------------|-----------------|----------------|
+| 架构 | Transformer 编码器 | Transformer 解码器 | 双向 LSTM |
+| 方向 | 双向 | 单向（左→右） | 浅层双向（拼接） |
+| 预训练 | MLM + NSP | 自回归 LM | 双向 LM |
+| 下游方式 | Fine-tuning | Fine-tuning | Feature-based |
+| 并行性 | ✅ | ✅ | ❌（LSTM 顺序） |
+| 生成能力 | ❌ | ✅ | ❌ |
+
+## 🔗 知识关联
+
+- **llm-math-foundations Ch03**：MLM 的分类头就是 softmax 回归
+- **llm-math-foundations Ch08**：MLM 损失函数就是交叉熵
+- **llm-math-foundations Ch09**：PPO/RLHF（InstructGPT 会用到）的基础
+- **本系列 01-Attention**：BERT 直接使用了 Transformer 编码器
+- **本系列 03-GPT-2**：BERT 的"反面"——解码器路线的起点
+
+---
+
+## ❓ 深度思考题
+
+1. **概念题**：BERT 的 [CLS] token 为什么能聚合全局信息？如果把 [CLS] 放在序列末尾会怎样？
+
+2. **设计题**：如果你来设计一个比 MLM 更高效的预训练目标，你会怎么做？（提示：ELECTRA 的思路是什么？）
+
+3. **批判题**：BERT 的消融实验（Table 5）有什么潜在的 confounding factors？BERT vs GPT 的对比真的完全公平吗？（提示：除了双向性，还有什么不同？）
+
+4. **应用题**：BERT 能做文本生成吗？为什么？如果要在 BERT 上做生成，最小改动是什么？
+
+5. **面试题**：面试官问"BERT 的双向和 GPT 的单向各有什么优劣？为什么最终 GPT 路线赢了？"你怎么回答？
+
+6. **拓展题**：后来的 RoBERTa 去掉了 NSP 还提升了性能，这说明 BERT 论文的哪个结论需要修正？这对你评价一篇论文的结论有什么启发？
+
+7. **实现题**：如果给你一个预训练好的 BERT 模型和一个新的分类数据集（只有 100 个样本），你会怎么微调？有什么技巧可以用？
+
+8. **哲学题**：BERT 证明了"双向预训练更好"，但 GPT-3/ChatGPT 用单向模型也达到了惊人的效果。这说明"双向"真的是关键吗？还是说关键在于别的东西？
+
+---
+
+## 📚 延伸阅读
+
+| 论文 | 年份 | 和 BERT 的关系 |
+|------|------|---------------|
+| **RoBERTa** (Liu et al.) | 2019 | BERT 的"修正版"——去掉 NSP、动态 masking、更多数据和更长训练 |
+| **ALBERT** (Lan et al.) | 2019 | BERT 的"轻量版"——跨层参数共享、用 SOP 替代 NSP |
+| **ELECTRA** (Clark et al.) | 2020 | BERT 的"升级版"——判别器预训练，同样计算量下效果更好 |
+| **SpanBERT** (Joshi et al.) | 2020 | BERT 的变体——mask 连续 span 而非随机 token，对抽取任务更好 |
+| **DistilBERT** (Sanh et al.) | 2019 | BERT 的"蒸馏版"——小 40%、快 60%、保留 97% 性能 |
+| **GPT-2** (Radford et al.) | 2019 | 本系列下一篇——BERT 的"对手"，解码器路线的起点 |
