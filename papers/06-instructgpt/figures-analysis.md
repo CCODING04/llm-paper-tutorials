@@ -1,52 +1,67 @@
 # InstructGPT 论文图表分析
 
----
-
-## Figure 1: 人类偏好评估
-
-### 客观描述（5A）
-柱状图，展示各模型相对于 175B SFT 模型的偏好率：
-- 1.3B PPO-ptx（InstructGPT）：~85%（vs 175B GPT-3）
-- 175B PPO-ptx：~85%（vs 175B GPT-3）
-- 175B GPT-3 few-shot：显著低于 InstructGPT
-- 误差棒为 95% 置信区间
-
-### 深度分析（5B）
-- **核心发现**：1.3B InstructGPT 偏好率 ≈ 175B InstructGPT——对齐效果与规模无关
-- **验证的假设**：直接证明"对齐比规模更重要"
-- **批判**：评估只在 OpenAI API prompt 分布上——对其他类型任务可能不同
-- **面试价值**：这张图是 InstructGPT 最核心的论据——1.3B > 175B
+> 数据来源：tex 源码 caption + raw-extract.md 精确数值
 
 ---
 
-## Figure 2: RLHF 三步法流程图
+## Figure 1: 人类偏好评估（核心结果）
 
 ### 客观描述（5A）
-三步流程示意图：
-1. SFT：prompt → 人类写演示 → 监督微调
-2. RM：prompt → 多个模型输出 → 人类排序 → 训练奖励模型
-3. PPO：prompt → SFT模型 → 输出 → RM评分 → PPO更新
+
+柱状图，纵轴为 winrate vs 175B SFT baseline。
+- 横轴：GPT / GPT (prompted) / SFT 1.3B / SFT 6B / SFT 175B / PPO 1.3B / PPO 6B / PPO 175B / PPO-ptx 1.3B / PPO-ptx 6B / PPO-ptx 175B
+- 误差线：95% 置信区间
 
 ### 深度分析（5B）
-- **独立解读**：这是 RLHF 的标准流程图——定义了后来的对齐范式
-- **面试价值**：面试必考——解释 RLHF 三步法
+
+- **独立解读**：PPO-ptx 175B 的 winrate 约 85%，远超 GPT-3 的 ~10%。更震惊的是 PPO-ptx 1.3B 的 winrate 约 60%，也远超 175B GPT-3。
+- **对照 caption**："Human evaluations of various models on our API prompt distribution, evaluated by how often outputs from each model were preferred to those from the 175B SFT model." 与图一致。
+- **验证的假设**：验证了 RLHF 对齐的有效性——不只是 175B，1.3B 也能大幅超越未对齐的 175B。
+- **批判**：baseline 是 175B SFT 而非 GPT-3——这让所有 PPO 模型的 winrate 看起来更高（因为 SFT 本身就比 GPT-3 好）。如果 baseline 是 GPT-3，PPO 模型的 winrate 可能 >95%。
+- **面试价值**：最核心的图——1.3B InstructGPT > 175B GPT-3 = "对齐比规模重要"。
 
 ---
 
-## Table 1: API Prompt 分布
+## Figure 2: 三阶段流程图
 
 ### 客观描述（5A）
-| 用途 | 比例 |
-|------|------|
-| Generation | 45.6% |
-| Open QA | 12.4% |
-| Brainstorming | 11.2% |
-| Chat | 8.4% |
-| Rewrite | 6.6% |
-| Summarization | 4.2% |
-| Classification | 3.5% |
+
+示意图，展示 SFT → RM → PPO 三阶段：
+- Step 1: Prompt → 人工撰写回答 → SFT 训练
+- Step 2: Prompt → 模型生成多个输出 → 标注员排序 A>B>C>D → RM 训练
+- Step 3: Prompt → PPO 模型生成 → RM 打分 → PPO 更新
 
 ### 深度分析（5B）
-- **独立解读**：近半是生成类任务——这是 InstructGPT 最擅长的
-- **批判**：Chat 只有 8.4%——后来的 ChatGPT 大幅增加了对话数据
-- **面试价值**：说明对齐数据的分布决定了模型擅长的任务
+
+- **独立解读**：清晰展示了 RLHF 的数据流——从人类演示到人类偏好到强化学习
+- **面试价值**：面试必考——画图解释 RLHF 三阶段
+
+---
+
+## Figure 6: TruthfulQA 结果
+
+### 客观描述（5A）
+
+柱状图，灰色=truthfulness，彩色=truthfulness+informativeness
+- InstructGPT truthful+informative 比例约 GPT-3 的 2 倍
+
+### 深度分析（5B）
+
+- **独立解读**：InstructGPT 在 truthfulness 上大幅改善——不仅更诚实，还保持了信息量
+- **批判**：TruthfulQA 是对抗性设计的（专门针对 GPT-3 的弱点），非对抗性子集的效果如何？论文说同样有效。
+- **面试价值**：证明 RLHF 不仅改善指令跟随，也改善了真实性
+
+---
+
+## Figure 8: RealToxicityPrompts
+
+### 客观描述（5A）
+
+散点图：人类评估毒性 vs Perspective API 自动评估毒性
+- 1,729 prompts，3 个 175B 模型，有/无"respectful"指令
+
+### 深度分析（5B）
+
+- **独立解读**：InstructGPT 在加"respectful"指令后，毒性输出减少约 25%
+- **批判**：改善不大，且不加指令时 InstructGPT 和 GPT-3 差不多。说明 RLHF 对毒性的改善有限。
+- **面试价值**：证明 RLHF 不是万能的——对齐不能解决所有安全问题
