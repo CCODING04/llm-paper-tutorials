@@ -50,31 +50,76 @@ ls papers/XX-paper-name/images/ | wc -l
 grep -c '!\[' papers/XX-paper-name/raw-extract.md
 ```
 
-### Step 4: 验证图片与文本（可选但推荐）
+### Step 4: LaTeX 源码验证（推荐）
 
-MinerU 转换可能引入 typo（尤其是图片文件名中的 hash）。如果发现可疑错误：
+MinerU 转换可能引入 typo（公式、表格数据、专业术语等）。用 arXiv 上的 LaTeX 源码进行交叉验证。
 
-1. 从 arXiv 下载论文 LaTeX 源码：
-   ```bash
-   # arXiv 论文页面 → "Download Source" → .tar.gz 或 .7z
-   # 解压到临时目录，不要提交到仓库
-   mkdir -p /tmp/paper-tex-source && tar xzf source.tar.gz -C /tmp/paper-tex-source/
-   ```
+#### 4.1 下载并解压 LaTeX 源码
 
-2. 对比 tex 源码中的图片文件名与 MinerU 生成的文件名：
-   ```bash
-   # 在 tex 文件中搜索图片引用
-   grep -r 'includegraphics' /tmp/paper-tex-source/
-   # 对比 images/ 目录中的实际文件名
-   ls papers/XX-paper-name/images/
-   ```
+```bash
+# arXiv 论文 ID 格式：XXXX.XXXXX
+# 源码下载地址：https://arxiv.org/e-print/XXXX.XXXXX
+# 例如 BERT 论文：https://arxiv.org/e-print/1810.04805
 
-3. 修复发现的 typo（通常是 hash 中多/少字符）
+PAPER_ID="XXXX.XXXXX"
+mkdir -p /tmp/paper-tex-source
 
-4. 验证完成后删除临时目录：
-   ```bash
-   rm -rf /tmp/paper-tex-source/
-   ```
+# 下载源码（通常是 .tar.gz 或 .gz 格式）
+curl -L -o /tmp/paper-tex-source/source.tar.gz "https://arxiv.org/e-print/$PAPER_ID"
+
+# 解压
+cd /tmp/paper-tex-source && tar xzf source.tar.gz
+```
+
+#### 4.2 对比验证
+
+```bash
+# 1. 查看论文结构（各 .tex 文件对应的章节）
+grep 'section\|subsection' /tmp/paper-tex-source/*.tex
+
+# 2. 查看图片引用（确保 MinerU 提取的图片名对应正确）
+grep -r 'includegraphics' /tmp/paper-tex-source/*.tex
+
+# 3. 查看 caption 文字（对比 MinerU 提取的图/表标题）
+grep -E '(\\caption|\\label\{fig)' /tmp/paper-tex-source/*.tex
+
+# 4. 检查表格数据（对比 tex 中的数值与 raw-extract.md 中的数值）
+grep -r 'tabular' /tmp/paper-tex-source/*.tex
+```
+
+#### 4.3 常见问题与修复
+
+| 问题类型 | 检查方法 | 修复方式 |
+|---------|---------|--------|
+| 图片文件名 typo | 对比 `includegraphics` 与 `images/` 目录 | 重命名图片文件 |
+| 公式错误 | 对比 tex 源码中的数学公式 | 手动修正 raw-extract.md |
+| 表格数据偏差 | 对比 tex 中的数值 | 手动修正 raw-extract.md |
+| 术语拼写错误 | 对比 tex 中的专业术语 | 手动修正 raw-extract.md |
+
+#### 4.4 清理临时文件
+
+```bash
+rm -rf /tmp/paper-tex-source/
+```
+
+> **注意**：tex 源码目录不要提交到 git 仓库，只保留在本地临时目录用于验证。
+
+#### 4.5 验证结论记录
+
+验证完成后，在论文目录创建 `tex-verification.md`（可选），记录发现的 typo 和修复情况：
+```markdown
+# TeX 源码验证记录
+
+## 论文信息
+- arXiv ID: XXXX.XXXXX
+- 验证日期: YYYY-MM-DD
+
+## 发现的问题
+- (无 / 列出发现的 typo)
+
+## 修复内容
+- (无 / 列出修复)
+```
 
 ### Step 5: mimo-v2.5 分析论文图表
 
@@ -178,7 +223,7 @@ plt.savefig('images/xxx.png')
 - [ ] `raw-extract.md` 提取完整，图片引用正常
 - [ ] `README.md` 公式推导不跳步、有代码验证、有 llm-math 关联
 - [ ] `merged-tutorial.md` 原文未修改、讲解穿插在对应章节后
-- [ ] 图片路径无 typo（如有怀疑，下载 tex 源码验证）
+- [ ] 图片路径无 typo（已用 tex 源码验证）
 - [ ] 代码块有测试代码和预期输出
 - [ ] 生成图片的代码已执行，图片已保存到 images/
 - [ ] 四份文件都存在于论文目录中
