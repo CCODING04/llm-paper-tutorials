@@ -62,6 +62,32 @@ DeepSeek-V3-0324 (2025.03) → 开源更新版
 
 > DeepSeek-V3 以仅 **37B 激活参数**（总参数 671B），在多数 benchmark 上超越 **LLaMA-3.1 405B**（11 倍激活参数），且总训练成本仅 **$5.576M**。
 
+### 📊 图表精读：Figure 1 — 性能对比总览
+
+![Figure 1](./images/e9b1544011d6a3ab3290fbda4504cbf3d3cd4057bcfd660b42b3c54253de0253.jpg)
+
+这是一张分组柱状图，对比 6 个模型在 6 个核心 benchmark 上的表现。
+
+**独立解读**（先不看 caption）：DeepSeek-V3（蓝色斜线柱）在数学和编程类 benchmark 上有明显优势，尤其是 MATH 500 和 Codeforces。在 MMLU-Pro 和 SWE-bench 上略逊于 Claude-3.5-Sonnet。
+
+| 基准 | DeepSeek-V3 | 最强竞品 | 差距 |
+|------|:-:|:-:|:-:|
+| MATH 500 | **90.2** | 80.0 | +10.2 🔥 |
+| Codeforces | **51.6** | 25.3 | +26.3 🔥 |
+| AIME 2024 | **39.2** | 16.0 (Claude) | +23.2 🔥 |
+| MMLU-Pro | 75.9 | **78.0** (Claude) | -2.1 |
+| SWE-bench | 42.0 | **50.8** (Claude) | -8.8 |
+
+**对照 caption**：caption 说 "Benchmark performance of DeepSeek-V3 and its counterparts"，图中确实展示了全面对比。但注意——**选择性展示了 6 个有利于 V3 的 benchmark**（数学/编程强项），而 Table 3 中英语阅读理解（RACE）V3 表现不如 LLaMA。
+
+**验证的假设**：这张图验证了 DeepSeek-V3 "数学/编程断层式领先"的核心 claim。如果去掉这张图，论文的"开源最强"论点仍能从 Table 3 成立，但视觉冲击力大减。
+
+**批判性评价**：柱状图的纵轴不是从 0 开始，可能夸大差异。MATH 500 的 90.2 vs 80.0 视觉上差距巨大，但绝对差距 10 分在 0-100 范围内并不极端。
+
+**面试价值**：一句话——"DeepSeek-V3 以 37B 激活参数在数学/编程上实现断层领先，但在通用知识和工程任务上仍与 Claude 有差距。"
+
+---
+
 ## 2. 方法：逐节深入
 
 ### 2.1 基础架构：MLA + DeepSeekMoE
@@ -113,6 +139,21 @@ $$\mathbf{o}_{t,i} = \sum_{j=1}^{t} \text{Softmax}_j\left(\frac{\mathbf{q}_{t,i}
 
 > 💡 实际上 MLA 的 KV cache 还要加上解耦 key $\mathbf{k}_t^R$，但总缓存仍远小于标准 MHA。
 
+### 📊 图表精读：Figure 2 — 基础架构图
+
+![Figure 2](./images/47020ba0638c64e249baeae64930230574a4cc94c05abb8cf254c55237863041.jpg)
+
+**独立解读**：这是 Transformer Block 堆叠架构图，分三部分：左侧是整体流程（残差 + RMSNorm + 核心模块），右下是 MLA 内部计算细节，右上是 DeepSeekMoE 专家路由细节。
+
+关键观察：
+1. **斜线纹理标注了推理时缓存的内容**——只有 `c_KV`（512 维）和 `k_R`（解耦 RoPE key），而不是完整的 K 和 V
+2. **绿色 = 共享专家**（1 个，所有 token 必经），**浅蓝 = 路由专家**（256 个，Top-8 选择）
+3. 数据流：`h_t` → RMSNorm → MLA（压缩-解压-注意力）→ 残差 → RMSNorm → MoE（共享+路由）→ 残差 → `h_t'`
+
+**对照 caption**：caption 说 "Illustration of the basic architecture of DeepSeek-V3"。图中 MLA 和 MoE 并列展示，暗示两者在架构中是正交的设计选择。确实如此——MLA 解决注意力效率，MoE 解决 FFN 效率，互不依赖。
+
+**面试价值**：能画出这张图 = 能解释 DeepSeek-V3 的核心架构。面试时在白板上画这个流程图就够了。
+
 #### 2.1.2 DeepSeekMoE：细粒度专家 + 无辅助损失
 
 **直觉**：传统 MoE（如 Switch Transformer）用少量大专家。DeepSeekMoE 的核心思想是：**用大量小专家**，让每个专家更专注（specialization）。
@@ -153,6 +194,21 @@ $$\mathcal{L}_{\text{aux}} = \alpha \sum_{i=1}^{N} f_i P_i$$
 3. **训练最后 500B tokens 关闭 bias 更新**（γ=0），让模型自然收敛
 
 > ❓ **为什么批级别比序列级别好？** 论文消融实验证明：批级别允许专家更好地按领域特化（domain specialization），而序列级别的均衡约束会"平均化"专家能力，阻碍特化。论文中 1B MoE 模型的验证 loss：序列级辅助损失 2.258 vs 无辅助损失 2.253。
+
+### 📊 图表精读：Figure 3 — MTP 架构
+
+![Figure 3](./images/8ec4e4dae0053436085baf93274e71c0767d7105e1e3870408c9eddb7b52d9c0.jpg)
+
+**独立解读**：流程图展示了主模型和 MTP 模块的并行预测结构。主模型预测 t₂-t₅，MTP Module 1 预测 t₃-t₆，MTP Module 2 预测 t₄-t₇。
+
+关键设计：
+1. **绿色虚线**：Embedding Layer 和 Output Head 是跨模块共享的
+2. **黄色**：每个 MTP Module 只有 1 个 Transformer Block + Linear + RMSNorm，额外参数很少
+3. **输入构造**：MTP Module 的输入 = `[RMSNorm(h_i^0); RMSNorm(Emb(t_{i+1}))]`，即拼接主模型表示和下一个 token 的 embedding
+
+**验证的假设**：V3 实际只用了 D=1（1 个 MTP 模块），图中画了 D=2 是展示扩展能力。消融实验证明 D=1 已经带来显著提升（HumanEval +6.1）。
+
+**面试价值**：MTP 的核心不是并行预测多个 token，而是**顺序预测**——让模型在预测当前 token 时就为下一个 token 的预测做准备，增强了表征的"前瞻性"。
 
 #### 2.1.3 Multi-Token Prediction (MTP)
 
@@ -197,6 +253,33 @@ $$\mathcal{L}_{\text{MTP}} = \frac{\lambda}{D} \sum_{k=1}^{D} \mathcal{L}_{\text
 - 节点内：8 GPU via NVLink + NVSwitch（160 GB/s）
 - 节点间：InfiniBand（50 GB/s，约 NVLink 的 1/3.2）
 
+### 📊 图表精读：Figure 4 & 5 — DualPipe 调度
+
+![Figure 4](./images/1c445a3d67c85880883093723c9e3c9ddc62e83ff9f4eb4caddc71d26cf065ce.jpg)
+
+**Figure 4 独立解读**：时间线甘特图，展示一对前向-后向 chunk 如何重叠计算和通信。
+
+颜色编码：
+- 🟠 橙色 = 前向计算（MLP(F), ATTN(F)）+ 前向通信（DISPATCH(F), COMBINE(F)）
+- 🟢 绿色 = 后向计算（MLP(B), ATTN(B)）+ 后向通信
+- 🔵 蓝色 = 权重梯度计算（MLP(W), ATTN(W)）
+- 🟣 紫色 = PP 通信
+
+**关键洞察**：注意 DISPATCH 和 COMBINE 被安排在与 ATTN/MLP **同时执行**的位置——这意味着 all-to-all 通信的开销被完全隐藏了。
+
+![Figure 5](./images/47bd0b5dce17ad0d914bbbe902b241d63d1d0d39fb66e03beaf6859f2e9194c0.jpg)
+
+**Figure 5 独立解读**：完整的 8 PP ranks × 20 micro-batches 双向流水线调度。
+
+关键观察：
+1. **双向**：micro-batches 从流水线的两端同时进入
+2. **共享黑色边框**：两个相邻单元格表示计算和通信重叠
+3. **Pipeline bubble**：只在流水线的开始和结束有少量空闲
+
+**对照 Table 2**：DualPipe 的 bubble = $(PP/2-1)(F\&B+B-3W)$，而传统 1F1B = $(PP-1)(F+B)$。以 PP=16 为例，DualPipe 的 bubble 约为 1F1B 的 **1/4**。
+
+**批判性评价**：代价是 2× 参数内存（双向需要两份权重），但论文指出大 EP 情况下影响可忽略——这个说法是否完全可信？如果模型更大（如 2T 参数），2× 内存可能成为瓶颈。
+
 #### 2.2.2 DualPipe：计算-通信重叠
 
 **问题**：跨节点 MoE 的 all-to-all 通信导致计算-通信比约 1:1，效率极低。
@@ -227,6 +310,35 @@ DualPipe：双向流水线
 | **DualPipe** | $(\frac{PP}{2}-1)(F\&B+B-3W)$ | 2× | PP+1 |
 
 > ❓ **为什么参数是 2×？** DualPipe 双向流水线需要两份模型参数。但由于使用了大的 EP（Expert Parallelism），这不会显著增加内存消耗。
+
+### 📊 图表精读：Figure 6 & 7 — FP8 训练框架
+
+![Figure 6](./images/375dbb0cdb44dd5d5dfd10b685393c84e47a11c22d9340478adf63d675b9cd39.jpg)
+
+**Figure 6 独立解读**：FP8 混合精度训练的完整系统架构图，覆盖前向（Fprop）、反向（Dgrad, Wgrad）和权重更新。
+
+关键数据流：
+- **Fprop**：Input BF16 → 量化 FP8 → GEMM（FP8 输入 + FP32 累加）→ 反量化 BF16 → Output
+- **Dgrad**：同上，梯度方向
+- **Wgrad**：激活 FP8 + 梯度 FP8 → GEMM → 权重梯度 FP32
+- **权重更新**：FP32 master weight + FP32 梯度 → Optimizer（FP32 states）→ 反量化 FP8 存储
+
+> ❓ **为什么不全程 FP32？** 计算端 FP8 理论加速 2x，存储端 FP8 省一半内存。代价是精度损失——论文通过细粒度量化（Figure 7）把损失控制在 <0.25%。
+
+![Figure 7(a)](./images/c50a08d1e5e4d1804a9d7d08f3183c0e047416d97537919db747fbd321a11b76.jpg) ![Figure 7(b)](./images/adc05db4302052d5a1687c4d18aa56ee73098e420f2d2565b73bc69e7295b940.jpg)
+
+**Figure 7(a) 独立解读**：细粒度量化策略。
+
+- **激活值**（蓝色）：1×128 tile 粒度 → 每个 token 每 128 个 channel 共享一个缩放因子
+- **权重**（黄色）：128×128 block 粒度 → 每 128 输入 × 128 输出通道共享一个缩放因子
+
+对比：Per-tensor 量化只有 1 个缩放因子（粗），Per-element 每个元素一个（细但昂贵）。V3 选择了中间路线。
+
+**Figure 7(b) 独立解读**：Tensor Core + CUDA Core 协同累加。
+
+H800 的 WGMMA 指令 FP8 累加精度只有 ~14 bit。V3 的解法：每累加 $N_C=128$ 个元素后，把部分和从 Tensor Core 提升到 CUDA Core 的 **FP32 寄存器**继续累加。两个 warpgroup 交替执行，维持高利用率。
+
+**验证的假设**：Figure 7(b) + Appendix B.1（FP8 vs BF16 损失曲线）共同验证了"FP8 训练在大规模模型上可行"这一核心 claim。相对损失误差 <0.25% 是关键数据点。
 
 #### 2.2.3 FP8 训练
 
@@ -314,6 +426,22 @@ DualPipe：双向流水线
 | Balance loss α | 0.0001 |
 | MTP loss weight λ | 0.3（前 10T）→ 0.1（后 4.8T） |
 
+### 📊 图表精读：Figure 8 — NIAH 大海捞针测试
+
+![Figure 8](./images/48c392620bebf54d6e3bbbb2ca2bfff08d35ea0df30cd66ab01617b7cb861fb5.jpg)
+
+**独立解读**：热力图，展示 128K 上下文长度下的 NIAH 测试结果。
+
+- 横轴：上下文长度（2K ~ 128K tokens）
+- 纵轴：文档深度（0% ~ 100%）
+- 颜色：得分 1（红）→ 10（深绿）
+
+**关键观察**：**全域均为深绿色**（8~10 分），无论关键信息在文档的哪个位置，无论上下文多长（直到 128K），模型都能稳定检索。
+
+**对照 caption**：这验证了两阶段 YaRN 上下文扩展（4K→32K→128K）的有效性。
+
+**批判性评价**：NIAH 是一个相对简单的检索任务（找一个"needle"字符串），不代表模型在 128K 上下文中能进行复杂的推理。但至少证明了注意力机制在超长序列上没有"丢失"信息。
+
 #### 2.3.3 长上下文扩展
 
 两阶段 YaRN：
@@ -324,7 +452,26 @@ YaRN 配置：$s=40, \alpha=1, \beta=32, \sqrt{t}=0.1\ln s + 1$，仅应用于�
 
 **结果**：Needle In A Haystack 测试中，128K 窗口内表现一致且强大。
 
-#### 2.3.4 预训练评估（Base Model）
+#### 📊 图表精读：Figure 9 — 专家负载对比
+
+![Figure 9](./images/ccade079b772691097b1f60a9405ae109955146fe6967956a074b456a481e05d.jpg)
+
+**独立解读**：热力图对比 Aux-Loss-Based vs Aux-Loss-Free 策略下专家的负载分布。
+
+- 4 个子图：Layer 9 和 Layer 18 × 两种策略
+- 横轴：专家编号 1~64
+- 纵轴：3 个数据集（Wikipedia, Github, DM Mathematics）
+- 颜色：0（浅黄，低负载）→ 10（深红，高负载）
+
+**关键发现**：
+- **Aux-Loss-Free**：负载分布**不均**，部分专家负载很高（深红），部分很低（浅黄）——说明专家在**按领域特化**
+- **Aux-Loss-Based**：负载分布**均匀**（全是浅黄）——专家被迫"平均化"，无法深入特化
+
+**验证的假设**：这张图直接验证了论文的核心设计假设——无辅助损失策略允许更好的专家特化，而特化带来更好的性能。消融实验（Table 5）证实了这一点。
+
+**面试价值**：如果面试官问"无辅助损失为什么好"，指着这张图说："看，左边的专家在偷懒（均匀但无特化），右边的专家在专精（不均但高效）"就够了。
+
+### 2.3.4 预训练评估（Base Model）
 
 **核心对比**（Table 3）：
 
