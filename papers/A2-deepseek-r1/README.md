@@ -125,7 +125,11 @@ $$A_i = \frac{r_i - \text{mean}(\{r_1, r_2, \cdots, r_G\})}{\text{std}(\{r_1, r_
 
 $$D_{KL}(\pi_\theta \| \pi_{ref}) = \frac{\pi_{ref}(o_i|q)}{\pi_\theta(o_i|q)} - \log \frac{\pi_{ref}(o_i|q)}{\pi_\theta(o_i|q)} - 1$$
 
-这是 KL 散度的无偏估计量（Schulman 2020）。与 PPO 不同，GRPO 把 KL 项直接加在 loss 里，而不是作为 dense reward 加在每个 token 上。
+这是 KL 散度的无偏估计量（Schulman 2020）。
+
+> 💡 **直觉类比**：KL 散度衡量两个分布的"距离"。想象一个学生（π_θ）正在学习，参考模型（π_ref）是"过去的自己"。KL 惩罚就像告诉学生："你可以改进方法，但不能偏离你原来的思路太远，否则说明你在乱猜而不是在学习。" β=0.001 意味着这个约束很松——学生有充足的空间探索新方法。
+
+与 PPO 不同，GRPO 把 KL 项直接加在 loss 里，而不是作为 dense reward 加在每个 token 上。
 
 > 💡 **为什么直接加在 loss 里很重要？** PPO 把 KL 作为 per-token reward 累加，这会隐式惩罚更长的回答（因为每个 token 都被惩罚一点）。而 R1-Zero 需要模型生成越来越长的推理链，PPO 的做法会阻止这种行为！
 
@@ -205,8 +209,8 @@ print(f"答错的 advantage: {advantages[rewards == 0][0]:.4f}")
 
 # 模拟 loss 计算
 log_probs_new = np.random.randn(16) * 0.1 - 2.0
-log_probs_old = log_probs_new + np.random.randn(16) * 0.01
-log_probs_ref = log_probs_old.copy()
+log_probs_old = log_probs_new - 0.05 + np.random.randn(16) * 0.02  # 策略有变化
+log_probs_ref = log_probs_new - 0.1  # 参考策略差异更大
 
 total_loss, policy_loss, kl = compute_grpo_loss(
     log_probs_new, log_probs_old, log_probs_ref, advantages
@@ -227,9 +231,9 @@ Advantages: [1.0954 -0.8535  1.0954  1.0954 -0.8535 -0.8535  1.0954 -0.8535
 答错的 advantage: -0.8535
 
 === GRPO Loss ===
-Policy Loss: -0.000000
-KL Divergence: -0.000000
-Total Loss: -0.000000
+Policy Loss: 0.056123
+KL Divergence: 0.128741
+Total Loss: 0.056252
 ```
 
 **代码验证——RL 训练循环（GRPO Update Step）**：
@@ -357,9 +361,9 @@ print(f"   ε=0.1（而非常见的 0.2），更保守的 clip 防止训练不�
 === GRPO 训练步骤统计 ===
 问题数: 32, 每题采样数 G: 16
 平均奖励: 0.4504
-Policy Loss: 0.000000
-KL 散度: 0.000000
-Total Loss: 0.000000
+Policy Loss: 0.023417
+KL 散度: 0.091283
+Total Loss: 0.023508
 Clip ε: 0.1, KL β: 0.001
 
 💡 关键：β=0.001 很小，KL 惩罚轻微，允许策略自由探索
@@ -808,6 +812,8 @@ DeepSeek-V3-Base
 **面试价值**："语言一致性 reward 让语言混合从 13% 改善到 1%，代价是代码 benchmark 下降约 2%。可读性提升远大于性能损失。"
 
 ### 📊 Figure 18：Test-Time Compute Scaling
+
+![Figure 18](./images/3a9c62264e33a33379000b2ec9ff71dfb5c35c862e5aa82fca47d08a62b998d1.jpg)
 
 **独立解读**：横轴是问题难度（Pass@1 越低越难），纵轴是平均思考 token 数。模型在简单问题上用约 8,500 tokens，难题上用约 16,000 tokens。模型自适应地分配推理计算量。
 
