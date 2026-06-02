@@ -799,7 +799,7 @@ DeepSeek-V3-Base
 
 ### 📊 Figure 7：语言一致性奖励的消融
 
-![Figure 7](./images/69fc0cadfdb9cfa9ce00ee7112b2d468f8d1aa8abbbd64f3f787c5ed28bea1f9e.jpg)
+![Figure 7](./images/69360cadfdb9cfa9ce00ee7112bd468f8d1aa8abbbd64f3f787c5ed28bea1f9e.jpg)
 
 **独立解读**：两条曲线对比——有语言一致性奖励（LC）和没有 LC。有 LC 时，语言一致性保持稳定（~0.99）；没有 LC 时，一致性随训练持续下降（从 0.97 → 0.87）。下半部分显示 benchmark 性能：数学 benchmark 几乎不受影响，但 code benchmark 有轻微下降。
 
