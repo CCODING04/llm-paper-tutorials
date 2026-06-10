@@ -104,6 +104,7 @@
 |---|------|------|---------|-----------|------|
 | A1 | [DeepSeek-V3](./papers/A1-deepseek-v3/) | 2024 | MoE + MLA + FP8 训练 | ⭐⭐⭐⭐⭐ | ✅ 完成 |
 | A2 | [DeepSeek-R1](./papers/A2-deepseek-r1/) | 2025 | 纯 RL 推理能力 | ⭐⭐⭐⭐⭐ | ✅ 完成 |
+| A3 | [DFlash](./papers/A3-dflash/) | 2026 | Block Diffusion 投机解码 | ⭐⭐⭐⭐ | ✅ 完成 |
 
 
 ---
@@ -154,6 +155,12 @@
 - **重点理解**：纯 RL（不用 SFT）就能涌现 CoT 推理能力
 - **面试常问**：R1-Zero 和 R1 的区别、蒸馏 vs RL 的效果对比
 - **注意**：这是 2025 年最热的论文之一，面试加分利器
+
+### A3 - DFlash
+- **重点理解**：为什么 block diffusion 比 autoregressive drafting 快？KV Injection vs Input Fusion 的区别？
+- **面试常问**：投机解码的加速公式、DFlash 的两个创新点（并行 drafting + KV injection）、为什么 diffusion 适合做 draft 不适合做生成
+- **关联**：与 DeepSeek-V3 的 MTP 互补（都是多 token 预测，但方式不同）；与 LoRA 的 adapter 思想类似
+- **注意**：2026 ICML 论文，小米 MiMo-V2.5-UltraSpeed 的底层技术，工业落地案例
 
 ## 📂 每篇论文的文件结构
 
