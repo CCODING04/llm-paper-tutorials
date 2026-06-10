@@ -11,11 +11,14 @@
 **位置**：Section 1 Introduction
 **Caption**：Speedup comparison between DFlash, EAGLE-3 against Autoregressive Decoding on Qwen3-8B with the Transformers backend. Overall, DFlash achieves more than 2.5× higher speedup than EAGLE-3.
 
-### 客观描述
-- **类型**：分组柱状图
+### 客观描述（mimo-v2.5 多模态提取）
+- **类型**：分组柱状图，对比 3 种方法在 7 个推理任务上的加速比
 - **X 轴**：7 个 benchmark（GSM8K, Math500, AIME25, HumanEval, MBPP, LiveCodeBench, MT-Bench）
-- **Y 轴**：加速倍数（speedup over autoregressive baseline）
-- **三组柱**：Baseline（=1.00×）、EAGLE-3（~1.8-2.2×）、DFlash（~2.75-6.1×）
+- **Y 轴**：Speedup (×)，范围 0~6
+- **三组柱**：
+  - 灰色柱：Baseline（加速比固定为 1.00×）
+  - 绿色柱：EAGLE-3（~1.81-2.23×）
+  - 蓝色柱：DFlash（~2.75-6.08×）
 
 ### 关键数据（从图中提取）
 
@@ -54,15 +57,16 @@
 **位置**：Section 3.2 Preliminaries
 **Caption**：DFlash Inference Design. Hidden context features extracted from the target model are fused and injected into each draft layer's Key-Value cache to enable conditional speculation.
 
-### 客观描述
-- **类型**：架构流程图
-- **主要组件**：
-  - 左侧：Target Model（大模型，蓝色方框）
-  - 右侧：Draft Model（多层 Transformer，浅色方框）
-  - 中间连接：Target Context Feature（蓝色箭头）
-  - 底部：Target LM Head（共享）
-- **数据流**：Target Embedding → 5 层隐藏状态提取 → 拼接+投影 → Context Feature → 注入 Draft 每一层的 KV Cache → Draft Layer 输出 → LM Head
-- **颜色编码**：蓝色=Target Context Feature，浅色=Draft Layer，虚线=KV Cache 复用
+### 客观描述（mimo-v2.5 多模态提取）
+- **类型**：流程示意图，展示 DFlash 推测解码的完整架构
+- **核心模块**：
+  - Target Model（目标模型）→ Target Embedding
+  - Draft Layer 1（含 KV Cache、Bidirectional Attention、MLP）→ Draft Layer 2 → ... → Target LM Head（共享）
+- **颜色编码**：
+  - 蓝色：Fused Target Context Feature（融合目标上下文特征）
+  - 黄色：Target Decode Token（目标解码 token）
+  - 绿色：Mask Token（掩码 token）
+- **数据流**：输入（如 "Diffusion is good"）→ Target Model → 生成目标上下文特征 + 解码 token + mask token → Draft Layer（双向注意力 + MLP）→ Target LM Head → 推测解码输出
 
 ### 深度分析
 
@@ -89,19 +93,23 @@
 **位置**：Section 3.2 Preliminaries
 **Caption**：Draft cost of 1, 3, 5-layer DFlash and 1-layer EAGLE-3.
 
-### 客观描述
-- **类型**：分组柱状图
-- **X 轴**：Draft token 数量（4, 8, 16）
-- **Y 轴**：Draft 延迟（ms）
-- **四组柱**：EAGLE-3（最深蓝色）、DFlash-1L、DFlash-3L、DFlash-5L
+### 客观描述（mimo-v2.5 多模态提取）
+- **类型**：分组柱状图，对比 4 种方法在不同草稿 token 数量下的延迟
+- **X 轴**：Number of Draft Tokens（草稿 token 数量，取值 4、8、16）
+- **Y 轴**：Latency (ms)，范围 0~20
+- **四组柱**：
+  - 灰色柱：EAGLE-3
+  - 蓝色柱：DFlash (1)（1 层草稿层）
+  - 橙色柱：DFlash (3)（3 层草稿层）
+  - 绿色柱：DFlash (5)（5 层草稿层）
 
-### 关键数据（从图中估计）
+### 关键数据（mimo-v2.5 + LaTeX 源码交叉验证）
 
 | Draft Tokens | EAGLE-3 (1L) | DFlash (1L) | DFlash (3L) | DFlash (5L) |
 |-------------|-------------|-------------|-------------|-------------|
-| 4 | ~7ms | ~2ms | ~4ms | ~5ms |
-| 8 | ~12ms | ~2ms | ~4ms | ~6ms |
-| 16 | ~25ms | ~2ms | ~4ms | ~6ms |
+| 4 | ~6ms | ~2ms | ~3ms | ~4ms |
+| 8 | ~11ms | ~2ms | ~3ms | ~5ms |
+| 16 | ~25ms | ~2ms | ~4ms | ~5ms |
 
 ### 深度分析
 
@@ -128,15 +136,17 @@
 **位置**：Section 4.2 Training
 **Caption**：DFlash training attention. The target model provides context features (blue) that condition the draft model. The input consists of clean prompt tokens p and clean response tokens r. Within each masked block, a subset of clean response tokens (yellow) are randomly sampled as anchors, while mask tokens m (green) mark positions for parallel prediction. Invisible tokens (white) denote the attention mask, which enforces causal consistency and prevents inter-block information leakage during training.
 
-### 客观描述
-- **类型**：注意力掩码热力图（Attention Pattern Visualization）
-- **X/Y 轴**：Token 位置序列
+### 客观描述（mimo-v2.5 多模态提取）
+- **类型**：矩阵结构图，展示目标模型输出和 Mask Blocks 的 token 分布
+- **主要组件**：
+  - 左侧矩阵：From Target Model（目标模型输出，列含 p1-p4、r1-r2）
+  - 右侧矩阵：Mask Blocks（掩码块，列含 r1、\<m> 重复、r2、\<m> 重复、r3、\<m> 重复）
 - **颜色编码**：
-  - 🔵 蓝色：Target Context Feature（目标模型提取的特征）
-  - 🟡 黄色：Anchor Token（锚点 token，即 clean response token）
-  - 🟢 绿色：Mask Token（需要预测的 masked token）
-  - ⬜ 白色：Invisible（不可见，注意力被屏蔽）
-- **结构**：Prompt tokens → Response tokens（包含多个 masked blocks），每个 block 以 anchor 开头
+  - 🔵 蓝色：Target Context Feature（目标上下文特征）
+  - 🟢 绿色：Mask Token（掩码 token）
+  - 🟡 黄色：Clean Token（干净 token / anchor）
+  - ⬜ 白色：Invisible Token（不可见，注意力被屏蔽）
+- **结构**：展示了目标模型输出的特征分布和 Mask Blocks 的组织结构
 
 ### 深度分析
 
@@ -170,11 +180,13 @@
 **位置**：Section A.5.1 Appendix
 **Caption**：The loss decay makes training converge faster and better.
 
-### 客观描述
-- **类型**：折线图
-- **X 轴**：Training epoch（1-9）
-- **Y 轴**：Acceptance length (τ)
-- **两条线**：With loss decay（实线，橙色）、Without loss decay（虚线，蓝色）
+### 客观描述（mimo-v2.5 多模态提取）
+- **类型**：折线图，对比有/无损失衰减对 Acceptance Length 的影响
+- **X 轴**：Epoch（训练轮数，范围 1~9）
+- **Y 轴**：Acceptance Length (Math500)，范围 4.2~6.5
+- **两条线**：
+  - 蓝色线：With loss decay（有损失衰减）
+  - 橙色线：Without loss decay（无损失衰减）
 
 ### 关键数据
 
