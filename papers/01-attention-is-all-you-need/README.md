@@ -996,6 +996,26 @@ GPT-2、LLaMA 等现代架构都采用了 Pre-LN。原因：Post-LN 在训练初
 
 ---
 
+## 🧪 代码实战：论文公式 ↔ 代码对照
+
+> 光看论文不够，得动手写代码才能真正理解。
+
+**[→ 打开代码实战指南](code-walkthrough/README.md)**
+
+基于 [transformer-zh-en](https://github.com/philexohf/transformer-zh-en) 项目，纯手写实现 Transformer，中英机器翻译 BLEU 36.87。
+
+对照内容包括：
+- Scaled Dot-Product Attention ↔ 论文公式 1
+- Multi-Head Attention ↔ 论文 Section 3.2.2
+- Positional Encoding ↔ 论文公式 3、4
+- Position-wise FFN ↔ 论文公式 2
+- Add & Norm ↔ 论文 Figure 1
+- Encoder / Decoder Layer 完整数据流
+- 学习率 Warmup 调度 ↔ 论文 Section 5.3
+- 超参数对照表 + 推荐练手实验
+
+---
+
 ## 📚 延伸阅读
 
 1. **"The Annotated Transformer"** (Harvard NLP, 2018) — 用 PyTorch 逐行实现 Transformer 的经典教程，代码质量极高，适合对照阅读
